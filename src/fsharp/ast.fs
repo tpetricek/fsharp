@@ -665,8 +665,9 @@ and
     ///
     /// F# syntax: let! pat = expr in expr
     /// F# syntax: use! pat = expr in expr
+    /// F# syntax: let! pat1 = expr1 and pat2 = expr2 .. in expr
     /// Computation expressions only
-    | LetOrUseBang    of SequencePointInfoForBinding * bool * bool * SynPat * SynExpr * SynExpr * range
+    | LetOrUseBang    of SequencePointInfoForBinding * bool * (SynPat * SynExpr) list * SynExpr * range
 
     /// F# syntax: do! expr 
     /// Computation expressions only
@@ -692,6 +693,10 @@ and
 
     /// Inserted for error recovery when there is "expr." and missing tokens or error recovery after the dot
     | DiscardAfterMissingQualificationAfterDot  of SynExpr * range  
+
+    /// 'match!' construct from joinads
+    | MatchBang of  SequencePointInfoForBinding * SynExpr * SynMatchClause list * range
+
     /// Get the syntactic range of source code covered by this construct.
     member e.Range = 
         match e with 
@@ -749,7 +754,8 @@ and
         | SynExpr.ImplicitZero (m)
         | SynExpr.YieldOrReturn (_,_,m)
         | SynExpr.YieldOrReturnFrom (_,_,m)
-        | SynExpr.LetOrUseBang  (_,_,_,_,_,_,m)
+        | SynExpr.LetOrUseBang  (_,_,_,_,m)
+        | SynExpr.MatchBang (_,_,_,m)
         | SynExpr.DoBang  (_,m) -> m
         | SynExpr.Ident id -> id.idRange
     /// range ignoring any (parse error) extra trailing dots
@@ -806,7 +812,8 @@ and
         | SynExpr.ImplicitZero (m)
         | SynExpr.YieldOrReturn (_,_,m)
         | SynExpr.YieldOrReturnFrom (_,_,m)
-        | SynExpr.LetOrUseBang  (_,_,_,_,_,_,m)
+        | SynExpr.LetOrUseBang  (_,_,_,_,m)
+        | SynExpr.MatchBang (_,_,_,m)
         | SynExpr.DoBang  (_,m) -> m
         | SynExpr.DotGet (expr,_,lidwd,m) -> if lidwd.ThereIsAnExtraDotAtTheEnd then unionRanges expr.Range lidwd.RangeSansAnyExtraDot else m
         | SynExpr.LongIdent (_,lidwd,_,_) -> lidwd.RangeSansAnyExtraDot 
@@ -866,7 +873,8 @@ and
         | SynExpr.ImplicitZero (m)
         | SynExpr.YieldOrReturn (_,_,m)
         | SynExpr.YieldOrReturnFrom (_,_,m)
-        | SynExpr.LetOrUseBang  (_,_,_,_,_,_,m)
+        | SynExpr.LetOrUseBang  (_,_,_,_,m)
+        | SynExpr.MatchBang (_,_,_,m)
         | SynExpr.DoBang  (_,m) -> m
         // these are better than just .Range, and also commonly applicable inside queries
         | SynExpr.Paren(_,m,_,_) -> m
@@ -956,13 +964,16 @@ and
     /// A pattern arising from a parse error
     | FromParseError of SynPat * range
 
+    /// '?' extension for joinads
+    | QWild of range
+
     member p.Range = 
       match p with 
       | SynPat.Const(_,m) | SynPat.Wild m | SynPat.Named (_,_,_,_,m) | SynPat.Or (_,_,m) | SynPat.Ands (_,m) 
       | SynPat.LongIdent (_,_,_,_,_,m) | SynPat.ArrayOrList(_,_,m) | SynPat.Tuple (_,m) |SynPat.Typed(_,_,m) |SynPat.Attrib(_,_,m) 
       | SynPat.Record (_,m) | SynPat.DeprecatedCharRange (_,_,m) | SynPat.Null m | SynPat.IsInst (_,m) | SynPat.QuoteExpr (_,m)
       | SynPat.InstanceMember(_,_,_,_,m) | SynPat.OptionalVal(_,m) | SynPat.Paren(_,m) 
-      | SynPat.FromParseError (_,m) -> m 
+      | SynPat.FromParseError (_,m) | SynPat.QWild(m) -> m 
 
 and  
     [<NoEquality; NoComparison>]
@@ -2257,6 +2268,6 @@ let rec synExprContainsError inpExpr =
           | SynExpr.DotNamedIndexedPropertySet (e1,_,e2,e3,_) ->
               walkExpr e1 || walkExpr e2 || walkExpr e3
 
-          | SynExpr.LetOrUseBang  (_,_,_,_,e1,e2,_) -> 
-              walkExpr e1 || walkExpr e2 
+          | SynExpr.LetOrUseBang  (_,_,es,e,_) -> 
+              walkExprs (List.map snd es) || walkExpr e
     walkExpr inpExpr
