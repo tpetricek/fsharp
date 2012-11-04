@@ -230,8 +230,6 @@ let ident = ident_start_char ident_char*
 rule token args skip = parse
  | ident 
      { Keywords.KeywordOrIdentifierToken args lexbuf (lexeme lexbuf) }
- | "!" 
-     { BANG } 
  | "do!" 
      { DO_BANG } 
  | "yield!" 

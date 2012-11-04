@@ -2862,21 +2862,23 @@ declExpr:
        SynExpr.LetOrUseBang(spBind,($1 = "use"),true,$2,$5,m) }
 
   | OBINDER multipleBangBindings hardwhiteDefnBindingsTerminator opt_OBLOCKSEP typedSeqExprBlock %prec expr_let 
-     { $5 (if $1 = "use" then "use!" else "let!") (rhs parseState 1);  // report unterminated error 
-       let spBind = SequencePointAtBinding(unionRanges (rhs parseState 1) $2.Range)
+     { $3 (if $1 = "use" then "use!" else "let!") (rhs parseState 1);  // report unterminated error 
+       let bindRange = $2 |> Seq.map (fun (e, _) -> e.Range) |> Seq.reduce unionRanges  
+       let spBind = SequencePointAtBinding(unionRanges (rhs parseState 1) bindRange)
        let m = unionRanges (rhs parseState 1) $5.Range
        SynExpr.LetOrUseBang(spBind,($1 = "use"),true,$2,$5,m) }
 
   | OBINDER multipleBangBindings hardwhiteDefnBindingsTerminator opt_OBLOCKSEP error %prec expr_let 
      { // error recovery that allows intellisense when writing incomplete computation expressions 
-       let spBind = SequencePointAtBinding(unionRanges (rhs parseState 1) $2.Range) 
+       let bindRange = $2 |> Seq.map (fun (e, _) -> e.Range) |> Seq.reduce unionRanges
+       let spBind = SequencePointAtBinding(unionRanges (rhs parseState 1) bindRange) 
        let mAll = unionRanges (rhs parseState 1) (rhs parseState 5)
-       let m = $2.Range.EndRange // zero-width range
+       let m = bindRange.EndRange // zero-width range
        SynExpr.LetOrUseBang(spBind,($1 = "use"),true,$2, SynExpr.ImplicitZero m, mAll) }
 
   | DO_BANG typedSeqExpr IN opt_OBLOCKSEP typedSeqExprBlock %prec expr_let 
      { let spBind = NoSequencePointAtDoBinding
-       SynExpr.LetOrUseBang(spBind,false,[SynPat.Const(SynConst.Unit,$2.Range),$2] ,$5, unionRanges (rhs parseState 1) $5.Range) }
+       SynExpr.LetOrUseBang(spBind,false,true,[SynPat.Const(SynConst.Unit,$2.Range),$2], $5, unionRanges (rhs parseState 1) $5.Range) }
 
   | ODO_BANG typedSeqExprBlock hardwhiteDefnBindingsTerminator %prec expr_let 
      { SynExpr.DoBang($2, unionRanges (rhs parseState 1) $2.Range) }
@@ -2897,9 +2899,9 @@ declExpr:
         SynExpr.MatchBang(spBind, $2,clauses,unionRanges mMatch mLast) }
 
   | MATCH_BANG typedSeqExpr     recover               %prec expr_match 
-      { if not $3 then reportParseErrorAt (rhs parseState 3) (FSComp.SR.parsUnexpectedEndOfFile());
-        (* Produce approximate expression during error recovery *)
-        SynExpr.DiscardAfterError($2,rhs2 parseState 1 2) }
+      { if not $3 then reportParseErrorAt (rhs parseState 1) (FSComp.SR.parsUnexpectedEndOfFileMatch());
+        // Produce approximate expression during error recovery 
+        exprFromParseError $2 }
   
   /* END MONADIC SYNTAX ONLY */
 

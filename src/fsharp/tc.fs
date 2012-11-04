@@ -4897,8 +4897,13 @@ and TcPat warnOnUpper cenv env topValInfo vFlags (tpenv,names,takenNames) ty pat
     | SynPat.InstanceMember (_,_,_,_,m) -> 
         errorR(Error(FSComp.SR.tcIllegalPattern(),pat.Range));
         (fun _ -> TPat_wild m), (tpenv,names,takenNames)
+
     | SynPat.FromParseError (pat,_) ->
         suppressErrorReporting (fun () -> TcPatAndRecover warnOnUpper cenv env topValInfo vFlags (tpenv,names,takenNames) (NewErrorType()) pat)
+
+    | SynPat.QWild m ->
+        errorR(Error((0, "The '?' pattern can only appear in 'match!' computation expression."),m))                    
+        (fun _ -> TPat_wild m), (tpenv,names,takenNames)
 
 and TcPatterns warnOnUpper cenv env vFlags s argtys args = 
     assert (List.length args  = List.length argtys);
@@ -5499,7 +5504,8 @@ and TcExprUndelayed cenv overallTy env tpenv (expr: SynExpr) =
     | SynExpr.ImplicitZero m ->
          error(Error(FSComp.SR.tcConstructRequiresSequenceOrComputations(),m))
     | SynExpr.DoBang  (_,m) 
-    | SynExpr.LetOrUseBang  (_,_,_,_,_,_,m) -> 
+    | SynExpr.MatchBang  (_,_,_,m) 
+    | SynExpr.LetOrUseBang  (_,_,_,_,_,m) -> 
          error(Error(FSComp.SR.tcConstructRequiresComputationExpression(),m))
 
 /// Check lambdas as a group, to catch duplicate names in patterns
@@ -6414,7 +6420,101 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
     let mkSynDelay2 (e: SynExpr) =  mkSynDelay (e.Range.MakeSynthetic()) e
     
     let builderValName = CompilerGeneratedName "builder"
+    let builderVarRange = interpExpr.Range
     let mBuilderVal = interpExpr.Range
+
+    
+    // JOINADS: Helpers for translation and for recognizing applicative syntax etc.
+
+    // Helper function to make sure that 'Bind', 'Merge', etc. 
+    // operations are available in the computation builder
+    let ensureOperationExists name m =
+        if isNil (TryFindIntrinsicOrExtensionMethInfo cenv env m ad name builderTy) then 
+            error(Error(FSComp.SR.tcRequireBuilderMethod(name), m))
+    let isOperationAvailable name =
+      not (isNil (TryFindIntrinsicOrExtensionMethInfo cenv env mWhole ad name builderTy))
+
+    /// Checks that an expression doesn't contain any computation binders 
+    /// (e.g. 'return!' nested inside if/seqencing/whatever)
+    let rec computationFree allowReturn comp = 
+        match comp with
+        | SynExpr.LetOrUse(_, _, _, body, _)
+        | SynExpr.IfThenElse (_, body, None, _, _, _, _) 
+        | SynExpr.TryFinally(body, _, _, _, _)
+        | SynExpr.TryWith(body, _, _, _, _, _, _)
+        | SynExpr.While (_, _, body, _) 
+        | SynExpr.For (_, _, _, _, _,body, _) 
+        | SynExpr.ForEach (_, _, _, _, _, body, _) -> computationFree false body
+
+        | SynExpr.Sequential(_, _, body1, body2, _) ->
+            computationFree false body1 && computationFree allowReturn body2
+        | SynExpr.IfThenElse (_, body1, Some(body2), _, _, _, _) ->
+            computationFree allowReturn body1 && computationFree allowReturn body2
+        | SynExpr.Match(_, _, clauses, _, _) ->
+            clauses |> Seq.forall (function Clause(_, _, body, _, _) -> computationFree allowReturn body)
+
+        | SynExpr.DoBang _
+        | SynExpr.LetOrUseBang _
+        | SynExpr.MatchBang  _ 
+        | SynExpr.YieldOrReturnFrom _
+        | SynExpr.ImplicitZero _ -> false
+        | SynExpr.YieldOrReturn _ -> allowReturn
+        | _ -> true
+        
+    /// Try translating computation expression to a simple projection
+    /// (this can be done when the computation always contains just plain 'return'    
+    /// in all branches that can return some value)
+    let rec tryTransProjection comp = 
+        match comp with
+        // transform: <something return e> ~> return <something e>
+        | SynExpr.LetOrUse(f1, f2, bind, expr, m) ->
+            expr |> tryTransProjection |> Option.map (fun expr ->
+              SynExpr.LetOrUse(f1, f2, bind, expr, m))
+        | SynExpr.TryFinally(body, e, m, sp1, sp2) ->
+            body |> tryTransProjection |> Option.map (fun body ->
+              SynExpr.TryFinally(body, e, m, sp1, sp2))
+        | SynExpr.TryWith(body, m, cl, m1, m2, sp1, sp2) ->
+            body |> tryTransProjection |> Option.map (fun body ->
+              SynExpr.TryWith(body, m, cl, m1, m2, sp1, sp2))
+        | SynExpr.Sequential(sp, true, body1, body2, m) when computationFree false body1 ->
+            body2 |> tryTransProjection |> Option.map (fun body2 ->
+              SynExpr.Sequential(sp, true, body1, body2, m))
+        | SynExpr.IfThenElse (guard, body1, Some body2, b, m, sp1, sp2) -> 
+            body1 |> tryTransProjection |> Option.bind (fun body1 ->
+              body2 |> tryTransProjection |> Option.map (fun body2 ->
+                SynExpr.IfThenElse (guard, body1, Some body2, b, m, sp1, sp2)))
+        | SynExpr.Match(sp, expr, clauses, b, m) ->
+            let optClauses = 
+              clauses |> List.map (fun (Clause(pat, guard, body, m, sp)) -> 
+                body |> tryTransProjection |> Option.map (fun body ->
+                  Clause(pat, guard, body, m, sp)))
+            List.foldBack (fun t s ->
+                match t, s with Some t, Some s -> Some(t::s) | _ -> None) optClauses (Some [])
+            |> Option.map (fun clauses ->
+                SynExpr.Match(sp, expr, clauses, b, m))
+
+        // Expressions that do not return anything
+        | SynExpr.Sequential _  // when first body contain computation construct
+        | SynExpr.IfThenElse (_, _, None, _, _, _, _) 
+        | SynExpr.While (_, _, _, _) 
+        | SynExpr.For (_, _, _, _, _,_, _) 
+        | SynExpr.ForEach (_, _, _, _, _,_, _) -> None
+
+        // Constructs that are simply not allowed            
+        | SynExpr.DoBang _
+        | SynExpr.LetOrUseBang _
+        | SynExpr.MatchBang  _ 
+        | SynExpr.YieldOrReturnFrom _ -> None
+
+        // Zero is treated as return Unit
+        | SynExpr.ImplicitZero m -> Some (mkSynUnit m)
+
+        // Return is simplified to identity
+        | SynExpr.YieldOrReturn (_, e, _) -> Some e
+        // Anything else is interpreted as 'do <e>' and gets translated to '<e>; ()'
+        | e -> Some (SynExpr.Sequential(SequencePointsAtSeq, true, e, mkSynUnit e.Range, e.Range))
+
+    // JOINADS: End of helper functions
     
     // Give bespoke error messages for the FSharp.Core "query" builder
     let isQuery = 
@@ -7149,7 +7249,7 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
                                     // Rebind using either for ... or let!....
                                     let rebind = 
                                         if maintainsVarSpaceUsingBind then 
-                                            SynExpr.LetOrUseBang(NoSequencePointAtLetBinding,false,false,intoPat,dataCompAfterOp,contExpr,intoPat.Range) 
+                                            SynExpr.LetOrUseBang(NoSequencePointAtLetBinding,false,false,[intoPat,dataCompAfterOp],contExpr,intoPat.Range) 
                                         else 
                                             SynExpr.ForEach (NoSequencePointAtForLoop, SeqExprOnly false, false, intoPat, dataCompAfterOp, contExpr, intoPat.Range)
 
@@ -7171,7 +7271,7 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
                     // Rebind using either for ... or let!....
                     let rebind = 
                         if lastUsesBind then 
-                            SynExpr.LetOrUseBang(NoSequencePointAtLetBinding, false, false, varSpacePat, dataCompPrior, compClausesExpr, compClausesExpr.Range) 
+                            SynExpr.LetOrUseBang(NoSequencePointAtLetBinding, false, false, [varSpacePat, dataCompPrior], compClausesExpr, compClausesExpr.Range) 
                         else 
                             SynExpr.ForEach (NoSequencePointAtForLoop, SeqExprOnly false, false, varSpacePat, dataCompPrior, compClausesExpr, compClausesExpr.Range)
                     
@@ -7220,7 +7320,7 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
                         | SuppressSequencePointOnStmtOfSequential -> SequencePointAtBinding m
                         | SuppressSequencePointOnExprOfSequential -> NoSequencePointAtDoBinding 
                         | SequencePointsAtSeq -> SequencePointAtBinding m
-                    Some(trans true q varSpace (SynExpr.LetOrUseBang(sp, false, true, SynPat.Const(SynConst.Unit, rhsExpr.Range), rhsExpr, innerComp2, m)) translatedCtxt)
+                    Some(trans true q varSpace (SynExpr.LetOrUseBang(sp, false, true, [SynPat.Const(SynConst.Unit, rhsExpr.Range), rhsExpr], innerComp2, m)) translatedCtxt)
                 // "expr; cexpr" is treated as sequential execution
                 | _ -> 
                     Some (trans true q varSpace innerComp2 (fun holeFill -> translatedCtxt (SynExpr.Sequential(sp,true, innerComp1, holeFill, m))))
@@ -7277,13 +7377,26 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
             Some (translatedCtxt (mkSynCall "Using" bindRange [rhsExpr; consumeExpr ]))
 
         // 'let! pat = expr in expr' --> build.Bind(e1,(function  _argN -> match _argN with pat -> expr))
-        | SynExpr.LetOrUseBang(spBind, false, isFromSource, pat, rhsExpr, innerComp,_) -> 
+        | SynExpr.LetOrUseBang(spBind, false, isFromSource, bindings, innerComp, m) -> 
+
+            // JOINADS: Handle 'let! pat = expr and pat = expr ...' using "Merge"
+
+            // If there are multiple bindings, we combine them into M<tuple> using "Merge"
+            if List.length bindings > 1 then ensureOperationExists "Merge" m
+            let (pat,rhsExpr) = 
+                bindings |> List.reduce (fun (currentPat, currentExpr) (pat, expr) ->  
+                    let resE = mkSynCall "Merge" pat.Range [currentExpr; expr]  
+                    let resP = SynPat.Tuple([currentPat; pat], m)
+                    resP, resE) 
+
+            // JOINADS: End of extension to support 'Merge'
 
             let bindRange = match spBind with SequencePointAtBinding(m) -> m | _ -> rhsExpr.Range
             if isQuery then error(Error(FSComp.SR.tcBindMayNotBeUsedInQueries(),bindRange))
             let innerRange = innerComp.Range
             if isNil (TryFindIntrinsicOrExtensionMethInfo cenv env bindRange ad "Bind" builderTy) then error(Error(FSComp.SR.tcRequireBuilderMethod("Bind"),bindRange))
-                
+            let makeLambda e = mkSynMatchLambda cenv.synArgNameGenerator (false,false,innerRange,[Clause(pat,None, e,innerRange,SequencePointAtTarget)],spBind)
+    
             // Add the variables to the query variable space, on demand
             let varSpace = 
                 addVarsToVarSpace varSpace (fun _mCustomOp env -> 
@@ -7292,27 +7405,46 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
                         vspecs, envinner)
 
             let rhsExpr = if isFromSource then mkSourceExpr rhsExpr else rhsExpr
-            Some (trans true q varSpace innerComp (fun holeFill -> 
-                        let consumeExpr = SynExpr.MatchLambda(false,pat.Range,[Clause(pat,None, holeFill,innerRange,SequencePointAtTarget)],spBind,innerRange)
-                        translatedCtxt (mkSynCall "Bind"  bindRange [rhsExpr; consumeExpr])))
+
+            // JOINADS: If the operation has Select and all branches return value using "return" then 
+            // we can transform the rest of the computation into projection (to support applicative functors)
+            let hasSelect = isOperationAvailable "Select"
+            match hasSelect, tryTransProjection innerComp with
+            | false, _ 
+            | _, None ->
+                // Doesn't have select or cannot be transformed to projection
+                // We require "Bind" and treat it as standard monad
+                ensureOperationExists "Bind" bindRange
+                Some (trans true q varSpace innerComp (fun holeFill -> 
+                            let consumeExpr = SynExpr.MatchLambda(false,pat.Range,[Clause(pat,None, holeFill,innerRange,SequencePointAtTarget)],spBind,innerRange)
+                            translatedCtxt (mkSynCall "Bind"  bindRange [rhsExpr; consumeExpr])))
+            
+            | true, Some simpleExpr ->
+                // JOINADS: We can translate it as weaker applicative functor
+                Some(mkSynCall "Select"  bindRange [rhsExpr; makeLambda simpleExpr ])
 
         // 'use! pat = e1 in e2' --> build.Bind(e1,(function  _argN -> match _argN with pat -> build.Using(x,(fun _argN -> match _argN with pat -> e2))))
-        | SynExpr.LetOrUseBang(spBind, true, isFromSource, (SynPat.Named (SynPat.Wild _, id, false, _, _) as pat) ,rhsExpr,innerComp,_)
-        | SynExpr.LetOrUseBang(spBind, true, isFromSource, (SynPat.LongIdent (LongIdentWithDots([id],_),_,_,_,_,_) as pat), rhsExpr, innerComp,_) ->
+        | SynExpr.LetOrUseBang(spBind, true, isFromSource, bindings, innerComp, m)
+        | SynExpr.LetOrUseBang(spBind, true, isFromSource, bindings, innerComp, m) ->
 
-            let bindRange = match spBind with SequencePointAtBinding(m) -> m | _ -> rhsExpr.Range
-            if isQuery then error(Error(FSComp.SR.tcBindMayNotBeUsedInQueries(),bindRange))
-            if isNil (TryFindIntrinsicOrExtensionMethInfo cenv env bindRange ad "Using" builderTy) then error(Error(FSComp.SR.tcRequireBuilderMethod("Using"),bindRange))
-            if isNil (TryFindIntrinsicOrExtensionMethInfo cenv env bindRange ad "Bind" builderTy) then error(Error(FSComp.SR.tcRequireBuilderMethod("Bind"),bindRange))
-            let consumeExpr = SynExpr.MatchLambda(false,bindRange,[Clause(pat,None, transNoQueryOps innerComp, innerComp.Range, SequencePointAtTarget)],spBind,bindRange)
-            let consumeExpr = mkSynCall "Using" bindRange [SynExpr.Ident(id); consumeExpr ]
-            let consumeExpr = SynExpr.MatchLambda(false,bindRange,[Clause(pat,None, consumeExpr,id.idRange,SequencePointAtTarget)],spBind,bindRange)
-            let rhsExpr = if isFromSource then mkSourceExpr rhsExpr else rhsExpr
-            Some(translatedCtxt (mkSynCall "Bind" bindRange [rhsExpr; consumeExpr]))
-
-        // 'use! pat = e1 in e2' where 'pat' is not a simple name --> error
-        | SynExpr.LetOrUseBang(_spBind, true, _isFromSource, pat, _rhsExpr, _innerComp,_) -> 
-            error(Error(FSComp.SR.tcInvalidUseBangBinding(),pat.Range))
+            match bindings with
+            | [(SynPat.Named (SynPat.Wild _, id, false, _, _) as pat), rhsExpr]
+            | [(SynPat.LongIdent (LongIdentWithDots([id],_),_,_,_,_,_) as pat), rhsExpr] ->
+                let bindRange = match spBind with SequencePointAtBinding(m) -> m | _ -> rhsExpr.Range
+                if isQuery then error(Error(FSComp.SR.tcBindMayNotBeUsedInQueries(),bindRange))
+                if isNil (TryFindIntrinsicOrExtensionMethInfo cenv env bindRange ad "Using" builderTy) then error(Error(FSComp.SR.tcRequireBuilderMethod("Using"),bindRange))
+                if isNil (TryFindIntrinsicOrExtensionMethInfo cenv env bindRange ad "Bind" builderTy) then error(Error(FSComp.SR.tcRequireBuilderMethod("Bind"),bindRange))
+                let consumeExpr = SynExpr.MatchLambda(false,bindRange,[Clause(pat,None, transNoQueryOps innerComp, innerComp.Range, SequencePointAtTarget)],spBind,bindRange)
+                let consumeExpr = mkSynCall "Using" bindRange [SynExpr.Ident(id); consumeExpr ]
+                let consumeExpr = SynExpr.MatchLambda(false,bindRange,[Clause(pat,None, consumeExpr,id.idRange,SequencePointAtTarget)],spBind,bindRange)
+                let rhsExpr = if isFromSource then mkSourceExpr rhsExpr else rhsExpr
+                Some(translatedCtxt (mkSynCall "Bind" bindRange [rhsExpr; consumeExpr]))
+ 
+            // 'use! pat = e1 in e2' where 'pat' is not a simple name --> error
+            | [pat, _rhsExpr] ->
+                error(Error(FSComp.SR.tcInvalidUseBangBinding(),pat.Range))
+            | _ ->
+                error(Error((-1, "Multiple bindings using 'use' are not supported!"),m))
 
         | SynExpr.Match (spMatch,expr,clauses,false,m) ->
             let mMatch = match spMatch with SequencePointAtBinding mMatch -> mMatch | _ -> m
@@ -7352,6 +7484,181 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
             if isNil (TryFindIntrinsicOrExtensionMethInfo cenv env m ad methName builderTy) then error(Error(FSComp.SR.tcRequireBuilderMethod(methName),m))
             Some(translatedCtxt (mkSynCall methName m [yieldExpr]))
 
+        
+        // JOINADS: Translation rule for 'match!'
+
+        | SynExpr.MatchBang (spMatch, expr, clauses, m) ->
+                
+            // Extract arguments of 'match!' - we expect that arguments are passed as a tuple
+            let exprs, length = 
+              match expr with
+              | SynExpr.Tuple(exprs, _, _) -> exprs, exprs.Length
+              | expr -> [expr], 1
+
+            // Create new variables for all arguments of the match! construct 
+            // (to avoid evaluating side-effects multiple times)
+            let exprsWithVars = [ for e in exprs -> e, mkSynNewArgVar cenv.synArgNameGenerator m ]
+            let exprs = [ for _, (_, e) in exprsWithVars -> e ]
+
+
+            // If the computation defines 'Alias' and 'Bind' then we wrap all arguments 
+            // using aliasing. Ohterwise, we just wrap them using 'let' to avoid effects.
+            // The function is called later after the body is defined.
+            let wrapWithLetBindings initialBody =
+                List.foldBack (fun (inite, (vpat, _)) body ->
+                  mkSynLocalBinding vpat inite body m) exprsWithVars initialBody    
+
+            // Function to be called later to wrap bindings around generated expr
+            let wrapWithAliasBindings initialBody =
+                List.foldBack (fun (inite, (vpat, _)) body ->
+                  let clause = Clause(vpat, None, body, m, SequencePointAtTarget)
+                  let bodyFunc = mkSynMatchLambda cenv.synArgNameGenerator (false,false,m,[clause],spMatch)                            
+                  let aliased = mkSynCall "Alias" m [inite]
+                  mkSynCall "Bind" m [aliased; bodyFunc]) exprsWithVars initialBody    
+
+            let wrapWithBindings = 
+              if isOperationAvailable "Alias" && isOperationAvailable "Bind" 
+              then wrapWithAliasBindings else wrapWithLetBindings
+                                    
+            // --------------------------------------------------------------------------------
+            // Translate clause using the following rule:
+            //
+            //  [| cpat1, ..., cpatk -> cexpr |]ccl m, (v1, ..., vk) =
+            //    bind (function
+            //          | (pat1, ...), patn -> unit(delay(fun () -> 
+            //              [| cexpr |]cexpr m))
+            //          | _ -> fail() ) cargs
+            //          
+            //  where { (pat1, v1), … , (patn, vn) } = { (pat, vi) | cpati = !pat; 1 <= i <= k }
+            //  and cargs = v1 `merge` ... `merge` vn-1 `merge` vn
+            //
+            let (|BangPatternSequence|) pat =
+              match pat with 
+              | SynPat.Tuple(pats, clauseM) -> (pats, clauseM)
+              | pat -> ([pat], pat.Range) 
+
+            let translatedCaluses = 
+              [ for (Clause (pat, optWhen, body, range, spClause)) in clauses do
+                  match pat with
+                  | BangPatternSequence(pats, clauseM) when pats.Length = length ->
+
+                      // Collect match! arguments & corresponding patterns
+                      // (for "!<pat>" locations in the pattern list)
+                      let bindPats = (List.zip pats exprs) |> List.choose (function 
+                        | (SynPat.QWild _, _) -> None
+                        | (p, e) -> Some(p, e))
+
+                      // Empty patterns are not supported
+                      if List.length bindPats = 0 then
+                          errorR(Error((0, "Clause consisting of ignore patterns only is not allowed."),m))                    
+
+                      // --------------------------------------------------
+                      // Implements the translation
+
+                      // To handle more than 1 pattern, we'll need 'Merge'
+                      if List.length bindPats > 1 then ensureOperationExists "Merge" clauseM
+
+                      // Merge all monadic values given as parameters
+                      let (inputPat, inputVal) = 
+                        bindPats |> List.reduce (fun (currentPat, currentExpr) (pat, expr) ->  
+                          let resE = mkSynCall "Merge" pat.Range [currentExpr; expr]  
+                          let resP = SynPat.Tuple([currentPat; pat], clauseM)
+                          resP, resE) 
+                          
+                      // Translate the body of the clause
+                      if isOperationAvailable "Bind" then 
+                        // If we have 'Bind' translate clauses as follows:
+                        //   Bind(<merged>, function <pats> -> Return (Delay (fun () -> ...))
+                        //                           | _ -> Fail)
+                        ensureOperationExists "Return" clauseM
+                        ensureOperationExists "Delay" clauseM
+
+                        // Create pattern matching returning body computation or fail
+                        let bodyClauses = [Clause(SynPat.Wild clauseM, None, transNoQueryOps body, body.Range, SequencePointAtTarget)]
+                        let bodyFunc = mkSynMatchLambda cenv.synArgNameGenerator (false,false,clauseM, bodyClauses, spMatch)
+                        let succBody = mkSynCall "Return" clauseM [mkSynCall "Delay" clauseM [bodyFunc]]
+                        let succClause = Clause(inputPat, optWhen, succBody, range, spClause)
+
+                        let bodyClauses =
+                          // If the computation builder does not define 'Fail' then we 
+                          // only generate a single match (that should better always succeed)
+                          if isOperationAvailable "Fail" then 
+                            let failBody = mkSynCall "Fail" clauseM []
+                            let failClause = Clause(SynPat.Wild clauseM, None, failBody, range, spClause)
+                            [ succClause; failClause ]
+                          else
+                            [ succClause ]
+                                
+                        let consumeExpr = mkSynMatchLambda cenv.synArgNameGenerator (false,false,clauseM,bodyClauses,spMatch)                              
+                        let translated = mkSynCall "Bind" clauseM [inputVal; consumeExpr]
+                        yield translated
+
+                      elif isOperationAvailable "Select" then
+                        // If we have 'Select', we translate clauses as follows:
+                        //   Select(<merged>, function <succ-pats> -> ...)
+
+                        // This can only be used if the body is a pure function
+                        let body = 
+                          match tryTransProjection body with 
+                          | Some body -> body
+                          | _ -> error(Error(FSComp.SR.tcRequireBuilderMethod("Bind"), m))
+     
+                        // Body contains just one clause (missing pattern is an error)
+                        let bodyClauses = [ Clause(inputPat, optWhen, body, range, spClause) ]
+                        let consumeExpr = mkSynMatchLambda cenv.synArgNameGenerator (false,false,clauseM,bodyClauses,spMatch)
+                        let translated = mkSynCall "Select" clauseM [inputVal; consumeExpr]
+                        yield translated
+
+                      else 
+                        // We need at least one of them...
+                        error(Error(FSComp.SR.tcRequireBuilderMethod("Select' or 'Bind"), m))
+
+                  | SynPat.Tuple _ ->
+                      errorR(Error((0, "Mismatching number of arguments and computation patterns."),m))
+                  | _ ->
+                      errorR(Error((0, "Expected computation patterns in 'match!'"),m)) ]
+            
+            // --------------------------------------------------------------------------------
+            // Translate match! using the following rule:
+            //
+            //  [| match! expr1, ..., exprk with
+            //     ccl1 | ... ccll |]cexpr m =		
+            //    let v1 = expr1 in ... let vk = exprk in
+            //    bind 
+            //      (fun v -> run v) 
+            //      ( [| ccl1 |]ccl m, (v1, ..., vk) `choose` ... `choose` 
+            //        [| ccll |]ccl m, (v1, ..., vk) )
+                
+            // For more than a single clause, we need 'Choose'
+            if List.length translatedCaluses > 1 then ensureOperationExists "Choose" m
+
+            // Choose between all clauses
+            let reducedClauses = 
+              translatedCaluses |> List.reduce (fun currentClause clause ->  
+                mkSynCall "Choose" m [currentClause; clause]) 
+                
+            if isOperationAvailable "Bind" then
+              // If 'Bind' is defined, generate:
+              //   if 'Run' member is available then: x.Bind(<reduced>, fun #newVar -> x.Run(#newVar))
+              //   otherwise generate just: x.Bind(<reduced>, id)
+              let runLambda = 
+                match TryFindIntrinsicOrExtensionMethInfo cenv env builderVarRange ad "Run" builderTy with 
+                | [] -> mkSynItem m "id"
+                | _ -> 
+                    let pat, expr = mkSynNewArgVar cenv.synArgNameGenerator m
+                    let runBody = mkSynCall "Run" m [expr]
+                    let lambdClause = Clause(pat, None, runBody, m, SuppressSequencePointAtTarget)
+                    mkSynMatchLambda cenv.synArgNameGenerator (false, false, m, [ lambdClause ], spMatch)
+
+              mkSynCall "Bind" m [reducedClauses; runLambda]
+              |> wrapWithBindings |> Some
+            else
+              // Return the clauses combined using 'choose' as they are
+              reducedClauses
+              |> wrapWithBindings |> Some
+
+        // JOINADS: End of translation extension 
+
         | _ -> None
 
     and transNoQueryOps comp = trans true false emptyVarSpace comp id
@@ -7366,7 +7673,7 @@ and TcComputationExpression cenv env overallTy mWhole interpExpr builderTy tpenv
                 let mUnit = rhsExpr.Range
                 let rhsExpr = mkSourceExpr rhsExpr
                 if isQuery then error(Error(FSComp.SR.tcBindMayNotBeUsedInQueries(),m))
-                trans true q varSpace (SynExpr.LetOrUseBang(NoSequencePointAtDoBinding, false, false, SynPat.Const(SynConst.Unit, mUnit), rhsExpr, SynExpr.YieldOrReturn((false,true), SynExpr.Const(SynConst.Unit,m), m),m)) translatedCtxt
+                trans true q varSpace (SynExpr.LetOrUseBang(NoSequencePointAtDoBinding, false, false, [SynPat.Const(SynConst.Unit, mUnit), rhsExpr], SynExpr.YieldOrReturn((false,true), SynExpr.Const(SynConst.Unit,m), m),m)) translatedCtxt
             // "expr;" in final position is treated as { expr; zero }
             // Suppress the sequence point on the "zero"
             | _ -> 
@@ -7532,7 +7839,7 @@ and TcSequenceExpression cenv env tpenv comp overallTy m =
                 //SEQPOINT NEEDED - we must consume spBind on this path
                 Some(mkSeqUsing cenv env wholeExprMark bindPatTy genOuterTy inputExpr consumeExpr, tpenv)
 
-            | SynExpr.LetOrUseBang(_,_,_,_,_,_,m) -> 
+            | SynExpr.LetOrUseBang(_,_,_,_,_,m) -> 
                 error(Error(FSComp.SR.tcUseForInSequenceExpression(),m))
 
             | SynExpr.Match (spMatch,expr,clauses,false,_) ->

@@ -667,7 +667,7 @@ and
     /// F# syntax: use! pat = expr in expr
     /// F# syntax: let! pat1 = expr1 and pat2 = expr2 .. in expr
     /// Computation expressions only
-    | LetOrUseBang    of SequencePointInfoForBinding * bool * (SynPat * SynExpr) list * SynExpr * range
+    | LetOrUseBang    of SequencePointInfoForBinding * bool * bool * (SynPat * SynExpr) list * SynExpr * range
 
     /// F# syntax: do! expr 
     /// Computation expressions only
@@ -754,7 +754,7 @@ and
         | SynExpr.ImplicitZero (m)
         | SynExpr.YieldOrReturn (_,_,m)
         | SynExpr.YieldOrReturnFrom (_,_,m)
-        | SynExpr.LetOrUseBang  (_,_,_,_,m)
+        | SynExpr.LetOrUseBang  (_,_,_,_,_,m)
         | SynExpr.MatchBang (_,_,_,m)
         | SynExpr.DoBang  (_,m) -> m
         | SynExpr.Ident id -> id.idRange
@@ -812,7 +812,7 @@ and
         | SynExpr.ImplicitZero (m)
         | SynExpr.YieldOrReturn (_,_,m)
         | SynExpr.YieldOrReturnFrom (_,_,m)
-        | SynExpr.LetOrUseBang  (_,_,_,_,m)
+        | SynExpr.LetOrUseBang  (_,_,_,_,_,m)
         | SynExpr.MatchBang (_,_,_,m)
         | SynExpr.DoBang  (_,m) -> m
         | SynExpr.DotGet (expr,_,lidwd,m) -> if lidwd.ThereIsAnExtraDotAtTheEnd then unionRanges expr.Range lidwd.RangeSansAnyExtraDot else m
@@ -873,7 +873,7 @@ and
         | SynExpr.ImplicitZero (m)
         | SynExpr.YieldOrReturn (_,_,m)
         | SynExpr.YieldOrReturnFrom (_,_,m)
-        | SynExpr.LetOrUseBang  (_,_,_,_,m)
+        | SynExpr.LetOrUseBang  (_,_,_,_,_,m)
         | SynExpr.MatchBang (_,_,_,m)
         | SynExpr.DoBang  (_,m) -> m
         // these are better than just .Range, and also commonly applicable inside queries
@@ -1548,6 +1548,11 @@ let mkSynPatVar vis (id:Ident) = SynPat.Named (SynPat.Wild id.idRange,id,false,v
 let mkSynThisPatVar (id:Ident) = SynPat.Named (SynPat.Wild id.idRange,id,true,None,id.idRange)
 let mkSynPatMaybeVar lidwd vis m =  SynPat.LongIdent (lidwd,None,None,[],vis,m) 
 
+let mkSynNewArgVar (synArgNameGenerator: SynArgNameGenerator) m  =
+    let nm = synArgNameGenerator.New()
+    let id = mkSynId m nm
+    mkSynPatVar None id, mkSynIdGet m nm
+
 /// Extract the argument for patterns corresponding to the declaration of 'new ... = ...'
 let (|SynPatForConstructorDecl|_|) x = 
     match x with 
@@ -1718,6 +1723,12 @@ let ParseAssemblyCodeType s m =
 let opNameParenGet  = CompileOpName parenGet 
 let opNameQMark = CompileOpName qmark
 let mkSynOperator opm oper = mkSynIdGet opm (CompileOpName oper)
+let mkSynItem m n = SynExpr.Ident(Ident(n, m))
+
+let mkSynLocalBinding pat expr body m =
+    let svd = SynValData(None, SynValInfo([], SynArgInfo([], false, None)), None)
+    let bind = Binding(None, NormalBinding, false, false, [], PreXmlDocEmpty, svd, pat, None, expr, m, NoSequencePointAtLetBinding)
+    SynExpr.LetOrUse(false, false, [bind], body, m)
 
 let mkSynInfix opm (l:SynExpr) oper (r:SynExpr) = 
     let firstTwoRange = unionRanges l.Range opm
@@ -1803,6 +1814,10 @@ let mkSynFunMatchLambdas synArgNameGenerator isMember wholem ps e =
     let _,e =  PushCurriedPatternsToExpr synArgNameGenerator wholem isMember ps e 
     e
 
+let mkSynMatchLambda synArgNameGenerator (isMember,isExnMatch,wholem,mtch,spBind) =
+    let p,pe = mkSynNewArgVar synArgNameGenerator wholem
+    let _,e = PushCurriedPatternsToExpr synArgNameGenerator wholem isMember [p] (SynExpr.Match(spBind,pe,mtch,isExnMatch,wholem))
+    e
 
 // error recovery - the contract is that these expressions can only be produced if an error has already been reported
 // (as a result, future checking may choose not to report errors involving these, to prevent noisy cascade errors)
@@ -2268,6 +2283,9 @@ let rec synExprContainsError inpExpr =
           | SynExpr.DotNamedIndexedPropertySet (e1,_,e2,e3,_) ->
               walkExpr e1 || walkExpr e2 || walkExpr e3
 
-          | SynExpr.LetOrUseBang  (_,_,es,e,_) -> 
+          | SynExpr.LetOrUseBang  (_,_,_,es,e,_) -> 
               walkExprs (List.map snd es) || walkExpr e
+
+          | SynExpr.MatchBang (_, e, cl, _) ->
+              walkExpr e || walkMatchClauses cl
     walkExpr inpExpr
