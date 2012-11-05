@@ -53,7 +53,7 @@ and PatternValBinding =
     | PBind of Val * TypeScheme
 
 and TypedMatchClause =  
-    | TClause of Pattern * Expr option * DecisionTreeTarget * range
+    | TClause of Pattern * Expr option * DecisionTreeTarget * bool * range
 
 /// Compile a pattern into a decision tree and a set of targets.
 val internal CompilePattern : 

@@ -983,16 +983,16 @@ and
 and  
     [<NoEquality; NoComparison>]
     SynMatchClause = 
-    | Clause of SynPat * SynExpr option *  SynExpr * range * SequencePointInfoForTarget
+    | Clause of SynPat * SynExpr option *  SynExpr * range * bool * SequencePointInfoForTarget
     member this.RangeOfGuardAndRhs =
         match this with
-        | Clause(_,eo,e,_,_) ->
+        | Clause(_,eo,e,_,_,_) ->
             match eo with
             | None -> e.Range
             | Some x -> unionRanges e.Range x.Range
     member this.Range =
         match this with
-        | Clause(_,eo,e,m,_) ->
+        | Clause(_,eo,e,m,_,_) ->
             match eo with
             | None -> unionRanges e.Range m
             | Some x -> unionRanges (unionRanges e.Range m) x.Range
@@ -1619,7 +1619,7 @@ let rec SimplePatOfPat (synArgNameGenerator: SynArgNameGenerator) p =
                 true,None,id,item
         SynSimplePat.Id (id,altNameRefCell,isCompGen,false,false,id.idRange),
         Some (fun e -> 
-                let clause = Clause(p,None,e,m,SuppressSequencePointAtTarget)
+                let clause = Clause(p,None,e,m,false,SuppressSequencePointAtTarget)
                 SynExpr.Match(NoSequencePointAtInvisibleBinding,item,[clause],false,clause.Range)) 
 
 let appFunOpt funOpt x = match funOpt with None -> x | Some f -> f x
@@ -2194,7 +2194,7 @@ let rec synExprContainsError inpExpr =
     let rec walkBind (Binding(_, _, _, _, _, _, _, _, _, synExpr, _, _)) = walkExpr synExpr
     and walkExprs es = es |> List.exists walkExpr
     and walkBinds es = es |> List.exists walkBind
-    and walkMatchClauses cl = cl |> List.exists (fun (Clause(_,whenExpr,e,_,_)) -> walkExprOpt whenExpr || walkExpr e)
+    and walkMatchClauses cl = cl |> List.exists (fun (Clause(_,whenExpr,e,_,_,_)) -> walkExprOpt whenExpr || walkExpr e)
     and walkExprOpt eOpt = eOpt |> Option.exists walkExpr
     and walkExpr e = 
           match e with 

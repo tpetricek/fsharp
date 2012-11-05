@@ -78,13 +78,13 @@ type Pattern =
 and PatternValBinding = PBind of Val * TypeScheme
 
 and TypedMatchClause =  
-    | TClause of Pattern * Expr option * DecisionTreeTarget * range
-    member c.GuardExpr = let (TClause(_,whenOpt,_,_)) = c in whenOpt
-    member c.Pattern = let (TClause(p,_,_,_)) = c in p
-    member c.Range = let (TClause(_,_,_,m)) = c in m
-    member c.Target = let (TClause(_,_,tg,_)) = c in tg
-    member c.BoundVals = let (TClause(_p,_whenOpt,TTarget(vs,_,_),_m)) = c in vs
-
+    | TClause of Pattern * Expr option * DecisionTreeTarget * bool * range
+    member c.GuardExpr = let (TClause(_,whenOpt,_,_,_)) = c in whenOpt
+    member c.Pattern = let (TClause(p,_,_,_,_)) = c in p
+    member c.Range = let (TClause(_,_,_,_,m)) = c in m
+    member c.Target = let (TClause(_,_,tg,_,_)) = c in tg
+    member c.BoundVals = let (TClause(_p,_whenOpt,TTarget(vs,_,_),_,_m)) = c in vs
+    member c.IsSynthetic = let (TClause(_,_,_,synth,_)) = c in synth
 let debug = false
 
 //---------------------------------------------------------------------------
@@ -748,7 +748,7 @@ let CompilePatternBasic
                 // That sequence point will have the pattern variables bound, which is exactly what we want.
                 let tg = TTarget(FlatList.empty,throwExpr,SuppressSequencePointAtTarget  )
                 mbuilder.AddTarget tg |> ignore;
-                let clause = TClause(TPat_wild matchm,None,tg,matchm)
+                let clause = TClause(TPat_wild matchm,None,tg,true,matchm)
                 incompleteMatchClauseOnce := Some(clause);
                 clause
                 
@@ -1238,7 +1238,7 @@ let CompilePatternBasic
         let used = accTargetsOfDecisionTree dtree [] |> Hashset.ofList
 
         clausesL |> List.iteri (fun i c ->  
-            if not (used.ContainsKey i) then warning (RuleNeverMatched c.Range)) 
+            if not (used.ContainsKey i) && not (c.IsSynthetic) then warning (RuleNeverMatched c.Range)) 
 
     dtree,targets
   
@@ -1254,7 +1254,7 @@ let rec CompilePattern  g denv amap exprm matchm warnOnUnused actionOnFailure (t
         // First make sure we generate at least some of the obvious incomplete match warnings. 
         let warnOnUnused = false in (* we can't turn this on since we're pretending all partial's fail in order to control the complexity of this. *)
         let warnOnIncomplete = true
-        let clausesPretendAllPartialFail = List.collect (fun (TClause(p,whenOpt,tg,m)) -> [TClause(erasePartialPatterns p,whenOpt,tg,m)]) clausesL
+        let clausesPretendAllPartialFail = List.collect (fun (TClause(p,whenOpt,tg,synt,m)) -> [TClause(erasePartialPatterns p,whenOpt,tg,synt,m)]) clausesL
         let _ = CompilePatternBasic g denv amap exprm matchm warnOnUnused warnOnIncomplete actionOnFailure (topv,topgtvs) clausesPretendAllPartialFail inputTy resultTy
         let warnOnIncomplete = false
         
@@ -1283,7 +1283,7 @@ let rec CompilePattern  g denv amap exprm matchm warnOnUnused actionOnFailure (t
                 else SequencePointAtTarget
 
             // Make the clause that represents the remaining cases of the pattern match
-            let clauseForRestOfMatch = TClause(TPat_wild matchm,None,TTarget(FlatList.empty,expr,spTarget),matchm)
+            let clauseForRestOfMatch = TClause(TPat_wild matchm,None,TTarget(FlatList.empty,expr,spTarget),true,matchm)
             
             CompilePatternBasic 
                  g denv amap exprm matchm warnOnUnused warnOnIncomplete actionOnFailure (topv,topgtvs) 

@@ -3020,26 +3020,26 @@ patternClauses:
   | patternAndGuard patternResult %prec prec_pat_pat_action
      { let pat,guard,patm = $1 
        let mLast = $2.Range 
-       [Clause(pat,guard,$2,patm,SequencePointAtTarget)], mLast  }
+       [Clause(pat,guard,$2,patm,false,SequencePointAtTarget)], mLast  }
   | patternAndGuard patternResult BAR patternClauses 
      { let pat,guard,patm = $1 
        let clauses,mLast = $4 
-       (Clause(pat,guard,$2,patm,SequencePointAtTarget) :: clauses), mLast }
+       (Clause(pat,guard,$2,patm,false,SequencePointAtTarget) :: clauses), mLast }
   | patternAndGuard patternResult BAR error 
      { let pat,guard,patm = $1 
        let mLast = rhs parseState 3 
        // silent recovery 
-       [Clause(pat,guard,$2,patm,SequencePointAtTarget)], mLast  }
+       [Clause(pat,guard,$2,patm,false,SequencePointAtTarget)], mLast  }
   | patternAndGuard patternResult error 
      { let pat,guard,patm = $1 
        let mLast = $2.Range 
        // silent recovery 
-       [Clause(pat,guard,$2,patm,SequencePointAtTarget)], mLast }
+       [Clause(pat,guard,$2,patm,false,SequencePointAtTarget)], mLast }
   | patternAndGuard error 
      { let pat,guard,patm = $1 
        let mLast = rhs parseState 2
        // silent recovery 
-       [Clause(pat,guard,SynExpr.Const(SynConst.Unit,mLast.EndRange),patm,SequencePointAtTarget)], mLast }
+       [Clause(pat,guard,SynExpr.Const(SynConst.Unit,mLast.EndRange),patm,false,SequencePointAtTarget)], mLast }
  
 patternGuard: 
   | WHEN declExpr 
