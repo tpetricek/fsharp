@@ -404,11 +404,16 @@ module internal AstTraversal =
                 | SynExpr.ImplicitZero(_range) -> None
                 | SynExpr.YieldOrReturn(_, synExpr, _range) -> traverseSynExpr synExpr
                 | SynExpr.YieldOrReturnFrom(_, synExpr, _range) -> traverseSynExpr synExpr
-                | SynExpr.LetOrUseBang(_sequencePointInfoForBinding, _, _, _synPat, synExpr, synExpr2, _range) -> 
-                    [dive synExpr synExpr.Range traverseSynExpr
-                     dive synExpr2 synExpr2.Range traverseSynExpr]
+                | SynExpr.LetOrUseBang(_sequencePointInfoForBinding, _, _, bindings, synExpr2, _range) -> 
+                    [ for _synPat, synExpr in bindings do 
+                        yield dive synExpr synExpr.Range traverseSynExpr
+                      yield dive synExpr2 synExpr2.Range traverseSynExpr ]
                     |> pick expr
                 | SynExpr.DoBang(synExpr, _range) -> traverseSynExpr synExpr
+                | SynExpr.MatchBang(_sp, synExpr, clauses, _range) -> 
+                    [yield dive synExpr synExpr.Range traverseSynExpr
+                     yield! clauses |> List.map (fun x -> dive x x.RangeOfGuardAndRhs (traverseSynMatchClause path))]
+                    |> pick expr
                 | SynExpr.LibraryOnlyILAssembly _ -> None
                 | SynExpr.LibraryOnlyStaticOptimization _ -> None
                 | SynExpr.LibraryOnlyUnionCaseFieldGet _ -> None

@@ -297,10 +297,18 @@ type (* internal *) UntypedParseInfo internal (parsed:UntypedParseResults) =
                       yield! walkExpr false e2; 
                       yield! walkExpr false e3; 
 
-                  | SynExpr.LetOrUseBang  (spBind,_,_,_,e1,e2,_) -> 
+                  | SynExpr.LetOrUseBang  (spBind,_,_,bindings,e,_) -> 
                       yield! walkBindSeqPt spBind
-                      yield! walkExpr true e1
-                      yield! walkExpr true e2 ]
+                      for _, e in bindings do
+                        yield! walkExpr true e
+                      yield! walkExpr true e 
+
+                  | SynExpr.MatchBang (spBind,e,cl,_) ->
+                      yield! walkBindSeqPt spBind
+                      yield! walkExpr false e 
+                      for (Clause(_,whenExpr,e,_,_)) in cl do 
+                          yield! walkExprOpt false whenExpr
+                          yield! walkExpr true e ]
             
             // Process a class declaration or F# type declaration
             let rec walkTycon (TypeDefn(ComponentInfo(_, _, _, _, _, _, _, _), repr, membDefns, _)) =
