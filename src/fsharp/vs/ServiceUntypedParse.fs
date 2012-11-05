@@ -161,7 +161,7 @@ type (* internal *) UntypedParseInfo internal (parsed:UntypedParseResults) =
             and walkExprs es = [ for e in es do yield! walkExpr false e ]
             and walkBinds es = [ for e in es do yield! walkBind e ]
             and walkMatchClauses cl = 
-                [ for (Clause(_,whenExpr,e,_,_)) in cl do 
+                [ for (Clause(_,whenExpr,e,_,_,_)) in cl do 
                     match whenExpr with Some e -> yield! walkExpr false e | _ -> ()
                     yield! walkExpr true e; ]
 
@@ -250,7 +250,7 @@ type (* internal *) UntypedParseInfo internal (parsed:UntypedParseResults) =
                       yield! walkExpr true e2; 
                   | SynExpr.MatchLambda(_isExnMatch,_argm,cl,spBind,_wholem) -> 
                       yield! walkBindSeqPt spBind
-                      for (Clause(_,whenExpr,e,_,_)) in cl do 
+                      for (Clause(_,whenExpr,e,_,_,_)) in cl do 
                           yield! walkExprOpt false whenExpr
                           yield! walkExpr true e; 
                   | SynExpr.Lambda (_,_,_,e,_) -> 
@@ -258,7 +258,7 @@ type (* internal *) UntypedParseInfo internal (parsed:UntypedParseResults) =
                   | SynExpr.Match (spBind,e,cl,_,_) ->
                       yield! walkBindSeqPt spBind
                       yield! walkExpr false e; 
-                      for (Clause(_,whenExpr,e,_,_)) in cl do 
+                      for (Clause(_,whenExpr,e,_,_,_)) in cl do 
                           yield! walkExprOpt false whenExpr
                           yield! walkExpr true e; 
                   | SynExpr.LetOrUse (_,_,bs,e,_) -> 
@@ -306,7 +306,7 @@ type (* internal *) UntypedParseInfo internal (parsed:UntypedParseResults) =
                   | SynExpr.MatchBang (spBind,e,cl,_) ->
                       yield! walkBindSeqPt spBind
                       yield! walkExpr false e 
-                      for (Clause(_,whenExpr,e,_,_)) in cl do 
+                      for (Clause(_,whenExpr,e,_,_,_)) in cl do 
                           yield! walkExprOpt false whenExpr
                           yield! walkExpr true e ]
             

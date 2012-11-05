@@ -517,7 +517,7 @@ module internal AstTraversal =
             let path = TraverseStep.MatchClause mc :: path
             let defaultTraverse mc =
                 match mc with
-                | (SynMatchClause.Clause(_synPat, synExprOption, synExpr, _range, _sequencePointInfoForTarget) as all) ->
+                | (SynMatchClause.Clause(_synPat, synExprOption, synExpr, _range, _synt, _sequencePointInfoForTarget) as all) ->
                     [
                         match synExprOption with
                         | None -> ()
