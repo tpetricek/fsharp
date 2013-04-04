@@ -34,7 +34,7 @@ open Microsoft.FSharp.Compiler.ExtensionTyping
 type AssemblyLoader = 
     abstract LoadAssembly : range * ILAssemblyRef -> CcuResolutionResult
 #if EXTENSIONTYPING
-    abstract GetProvidedAssemblyInfo : range * Tainted<ProvidedAssembly> -> bool * ProvidedAssemblyStaticLinkingMap option
+    abstract GetProvidedAssemblyInfo : range * TaintedProvider<ProvidedAssembly> -> bool * ProvidedAssemblyStaticLinkingMap option
     abstract RecordGeneratedTypeRoot : ProviderGeneratedType -> unit
 #endif
         
@@ -152,7 +152,7 @@ let rec ImportILType (env:ImportMap) m tinst typ =
 
 #if EXTENSIONTYPING
 
-let ImportProvidedNamedType (env:ImportMap) (m:range) (st:Tainted<ProvidedType>) = 
+let ImportProvidedNamedType (env:ImportMap) (m:range) (st:TaintedProvider<ProvidedType>) = 
     // See if a reverse-mapping exists for a generated/relocated System.Type
     match st.PUntaint((fun st -> st.TryGetTyconRef()),m) with 
     | Some x -> (x :?> TyconRef)
@@ -160,7 +160,7 @@ let ImportProvidedNamedType (env:ImportMap) (m:range) (st:Tainted<ProvidedType>)
         let tref = ExtensionTyping.GetILTypeRefOfProvidedType (st,m)
         ImportILTypeRef env m tref
 
-let rec ImportProvidedTypeAsILType (env:ImportMap) (m:range) (st:Tainted<ProvidedType>) = 
+let rec ImportProvidedTypeAsILType (env:ImportMap) (m:range) (st:TaintedProvider<ProvidedType>) = 
     if st.PUntaint ((fun x -> x.IsVoid),m) then ILType.Void
     elif st.PUntaint((fun st -> st.IsGenericParameter),m) then
         mkILTyvarTy (uint16 (st.PUntaint((fun st -> st.GenericParameterPosition),m)))
@@ -195,7 +195,7 @@ let rec ImportProvidedTypeAsILType (env:ImportMap) (m:range) (st:Tainted<Provide
         else 
             mkILBoxedType tspec
 
-let rec ImportProvidedType (env:ImportMap) (m:range) (* (tinst:TypeInst) *) (st:Tainted<ProvidedType>) = 
+let rec ImportProvidedType (env:ImportMap) (m:range) (* (tinst:TypeInst) *) (st:TaintedProvider<ProvidedType>) = 
 
     let g = env.g
     if st.PUntaint((fun st -> st.IsArray),m) then 
@@ -257,7 +257,7 @@ let rec ImportProvidedType (env:ImportMap) (m:range) (* (tinst:TypeInst) *) (st:
         ImportTyconRefApp env tcref genericArgs
 
 
-let ImportProvidedMethodBaseAsILMethodRef (env:ImportMap) (m:range) (mbase: Tainted<ProvidedMethodBase>) = 
+let ImportProvidedMethodBaseAsILMethodRef (env:ImportMap) (m:range) (mbase: TaintedProvider<ProvidedMethodBase>) = 
      let tref = ExtensionTyping.GetILTypeRefOfProvidedType (mbase.PApply((fun mbase -> mbase.DeclaringType),m), m)
 
      let mbase = 

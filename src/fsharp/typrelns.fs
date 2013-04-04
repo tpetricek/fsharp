@@ -1918,7 +1918,7 @@ let TakeObjAddrForMethodCall g amap (minfo:MethInfo) isMutable m objArgs f =
 
 #if EXTENSIONTYPING
 // This imports a provided method, and checks if it is a known compiler intrinsic like "1 + 2"
-let TryImportProvidedMethodBaseAsLibraryIntrinsic (amap:Import.ImportMap, m:range, mbase: Tainted<ProvidedMethodBase>) = 
+let TryImportProvidedMethodBaseAsLibraryIntrinsic (amap:Import.ImportMap, m:range, mbase: TaintedProvider<ProvidedMethodBase>) = 
     let methodName = mbase.PUntaint((fun x -> x.Name),m)
     let declaringType = Import.ImportProvidedType amap m (mbase.PApply((fun x -> x.DeclaringType),m))
     if isAppTy amap.g declaringType then 
@@ -2088,7 +2088,7 @@ let CoerceFromFSharpFuncToDelegate g amap infoReader ad callerArgTy m callerArgE
 // This file is not a great place for this functionality to sit, it's here because of BuildMethodCall
 module ProvidedMethodCalls =
 
-    let private convertConstExpr g amap m (constant : Tainted<obj * ProvidedType>) =
+    let private convertConstExpr g amap m (constant : TaintedProvider<obj * ProvidedType>) =
         let (obj,objTy) = constant.PApply2(id,m)
         let ty = Import.ImportProvidedType amap m objTy
         let normTy = normalizeEnumTy g ty
@@ -2130,7 +2130,7 @@ module ProvidedMethodCalls =
     /// back to System.Type. However, there is currently no way to get from an arbitrary F# TType (even the TType for 
     /// System.Object) to a System.Type to give to the type provider.
     let eraseSystemType (amap,m,inputType) = 
-        let rec loop (st:Tainted<ProvidedType>) = 
+        let rec loop (st:TaintedProvider<ProvidedType>) = 
             if st.PUntaint((fun st -> st.IsGenericParameter),m) then st
             elif st.PUntaint((fun st -> st.IsArray),m) then 
                 let et = st.PApply((fun st -> st.GetElementType()),m)
@@ -2177,15 +2177,15 @@ module ProvidedMethodCalls =
 
     let convertProvidedExpressionToExprAndWitness tcVal (thisArg:Expr option,
                                                          allArgs:Exprs,
-                                                         paramVars:Tainted<ProvidedVar>[],
+                                                         paramVars:TaintedProvider<ProvidedVar>[],
                                                          g,amap,mut,isProp,isSuperInit,m,
-                                                         expr:Tainted<ProvidedExpr>) = 
+                                                         expr:TaintedProvider<ProvidedExpr>) = 
         let varConv = 
             [ for (v,e) in Seq.zip (paramVars |> Seq.map (fun x -> x.PUntaint(id,m))) (Option.toList thisArg @ allArgs) do
                  yield (v,(None,e)) ]
             |> Dictionary.ofList 
 
-        let rec exprToExprAndWitness top (ea:Tainted<ProvidedExpr>) =
+        let rec exprToExprAndWitness top (ea:TaintedProvider<ProvidedExpr>) =
             let fail() = error(Error(FSComp.SR.etUnsupportedProvidedExpression(ea.PUntaint((fun etree -> etree.UnderlyingExpressionString), m)),m))
             match ea with
             | Tainted.Null -> error(Error(FSComp.SR.etNullProvidedExpression(ea.TypeProviderDesignation),m))
@@ -2374,7 +2374,7 @@ module ProvidedMethodCalls =
                 fail()
 
 
-        and ctorCallToExpr (ne:Tainted<_>) =    
+        and ctorCallToExpr (ne:TaintedProvider<_>) =    
             let (ctor,args) = ne.PApply2(id,m)
             let targetMethInfo = ProvidedMeth(g,ctor.PApply((fun ne -> upcast ne),m),amap,m)
             let objArgs = [] 
@@ -2382,7 +2382,7 @@ module ProvidedMethodCalls =
             let callExpr = BuildMethodCall tcVal g amap Mutates.PossiblyMutates m false targetMethInfo isSuperInit [] objArgs arguments
             callExpr
 
-        and addVar (v:Tainted<ProvidedVar>) =    
+        and addVar (v:TaintedProvider<ProvidedVar>) =    
             let nm = v.PUntaint ((fun v -> v.Name),m)
             let mut = v.PUntaint ((fun v -> v.IsMutable),m)
             let vRaw = v.PUntaint (id,m)
@@ -2391,11 +2391,11 @@ module ProvidedMethodCalls =
             varConv.[vRaw] <- (Some vT,vTe)
             vT
 
-        and removeVar (v:Tainted<ProvidedVar>) =    
+        and removeVar (v:TaintedProvider<ProvidedVar>) =    
             let vRaw = v.PUntaint (id,m)
             varConv.Remove vRaw |> ignore
 
-        and methodCallToExpr top _origExpr (mce:Tainted<_>) =    
+        and methodCallToExpr top _origExpr (mce:TaintedProvider<_>) =    
             let (objOpt,meth,args) = mce.PApply3(id,m)
             let targetMethInfo = ProvidedMeth(g,meth.PApply((fun mce -> upcast mce), m),amap,m)
             let objArgs = 
@@ -2417,7 +2417,7 @@ module ProvidedMethodCalls =
             let callExpr = BuildMethodCall tcVal g amap mut m isProp targetMethInfo isSuperInit replacementGenericArguments objArgs arguments
             Some meth, callExpr
 
-        and varToExpr (pe:Tainted<ProvidedVar>) =    
+        and varToExpr (pe:TaintedProvider<ProvidedVar>) =    
             // sub in the appropriate argument
             // REVIEW: "thisArg" pointer should be first, if present
             let vRaw = pe.PUntaint(id,m)
@@ -2434,7 +2434,7 @@ module ProvidedMethodCalls =
 
         
     // fill in parameter holes in the expression   
-    let TranslateInvokerExpressionForProvidedMethodCall tcVal (g, amap, mut, isProp, isSuperInit, mi:Tainted<ProvidedMethodBase>, objArgs, allArgs, m) =        
+    let TranslateInvokerExpressionForProvidedMethodCall tcVal (g, amap, mut, isProp, isSuperInit, mi:TaintedProvider<ProvidedMethodBase>, objArgs, allArgs, m) =        
         let parameters = 
             mi.PApplyArray((fun mi -> mi.GetParameters()), "GetParameters", m)
         let paramTys = 
@@ -2463,7 +2463,7 @@ module ProvidedMethodCalls =
         convertProvidedExpressionToExprAndWitness tcVal (thisArg,allArgs,paramVars,g,amap,mut,isProp,isSuperInit,m,ea)
 
             
-    let BuildInvokerExpressionForProvidedMethodCall tcVal (g, amap, mi:Tainted<ProvidedMethodBase>, objArgs, mut, isProp, isSuperInit, allArgs, m) =
+    let BuildInvokerExpressionForProvidedMethodCall tcVal (g, amap, mi:TaintedProvider<ProvidedMethodBase>, objArgs, mut, isProp, isSuperInit, allArgs, m) =
         try                   
             let methInfoOpt, (expr, retTy) = TranslateInvokerExpressionForProvidedMethodCall tcVal (g, amap, mut, isProp, isSuperInit, mi, objArgs, allArgs, m)
 

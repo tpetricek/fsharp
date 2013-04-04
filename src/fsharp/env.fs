@@ -361,6 +361,8 @@ type public TcGlobals =
       attrib_GeneralizableValueAttribute            : BuiltinAttribInfo;
       attrib_MeasureAttribute                       : BuiltinAttribInfo;
       attrib_MeasureableAttribute                   : BuiltinAttribInfo;
+      attrib_TypeCheckingProviderAttribute          : BuiltinAttribInfo;
+      attrib_TypeCheckingProviderTypeAttribute      : BuiltinAttribInfo;
       attrib_NoDynamicInvocationAttribute           : BuiltinAttribInfo;
       
       attrib_SecurityAttribute                      : BuiltinAttribInfo;
@@ -1193,6 +1195,8 @@ let mkTcGlobals (compilingFslib,sysCcu,ilg,fslibCcu,directoryToResolveRelativePa
     attrib_AbstractClassAttribute                 = mk_MFCore_attrib "AbstractClassAttribute";
     attrib_GeneralizableValueAttribute            = mk_MFCore_attrib "GeneralizableValueAttribute";
     attrib_MeasureAttribute                       = mk_MFCore_attrib "MeasureAttribute";
+    attrib_TypeCheckingProviderAttribute          = mk_MFCore_attrib "TypeCheckingProviderAttribute";
+    attrib_TypeCheckingProviderTypeAttribute      = mk_MFCore_attrib "TypeCheckingProviderTypeAttribute";
     attrib_MeasureableAttribute                   = mk_MFCore_attrib "MeasureAnnotatedAbbreviationAttribute";
     attrib_NoDynamicInvocationAttribute           = mk_MFCore_attrib "NoDynamicInvocationAttribute";
     attrib_SecurityAttribute                      = mkMscorlibAttrib "System.Security.Permissions.SecurityAttribute"

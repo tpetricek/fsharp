@@ -13432,6 +13432,8 @@ module EstablishTypeDefinitionCores = begin
             tycon.Data.entity_kind <- TyparKind.Measure;
             if nonNil typars then error(Error(FSComp.SR.tcMeasureDefinitionsCannotHaveTypeParameters(),m));
 
+        let tcProviderAttribute = TryFindTypeCheckingProviderTypeAttribute cenv.g attrs
+
         let repr = 
             match synTyconRepr with 
             | SynTypeDefnSimpleRepr.None m -> 
@@ -13542,7 +13544,7 @@ module EstablishTypeDefinitionCores = begin
 
 
     /// Check and establish a 'type X = ABC<...>' provided type definition
-    let private TcTyconDefnCore_Phase2_EstablishDeclarationForGeneratedSetOfTypes cenv inSig (tycon:Tycon, rhsType:SynType, tcrefForContainer:TyconRef, theRootType:Tainted<ProvidedType>, checkTypeName, args, m) =
+    let private TcTyconDefnCore_Phase2_EstablishDeclarationForGeneratedSetOfTypes cenv inSig (tycon:Tycon, rhsType:SynType, tcrefForContainer:TyconRef, theRootType:TaintedProvider<ProvidedType>, checkTypeName, args, m) =
 
         let tcref = mkLocalTyconRef tycon
         try 
@@ -13619,7 +13621,7 @@ module EstablishTypeDefinitionCores = begin
             // Iterate all nested types and force their embedding, to populate the mapping from System.Type --> TyconRef/ILTypeRef.
             // This is only needed for generated types, because for other types the System.Type objects self-describe
             // their corresponding F# type.
-            let rec doNestedType (eref: EntityRef) (st: Tainted<ProvidedType>) = 
+            let rec doNestedType (eref: EntityRef) (st: TaintedProvider<ProvidedType>) = 
 
                 // Check the type is a generated type
                 let isGenerated,provAssemStaticLinkInfoOpt = 
@@ -13667,7 +13669,7 @@ module EstablishTypeDefinitionCores = begin
 
                 //System.Diagnostics.Debug.Assert eref.TryDeref.IsSome
 
-            and doNestedTypes (eref: EntityRef) (st: Tainted<ProvidedType>) =
+            and doNestedTypes (eref: EntityRef) (st: TaintedProvider<ProvidedType>) =
                 st.PApplyArray((fun st -> st.GetAllNestedTypes()), "GetAllNestedTypes", m)
                 |> Array.map (doNestedType eref)
                 |> Array.toList

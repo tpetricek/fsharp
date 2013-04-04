@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
 # Copyright (c) 2002-2011 Microsoft Corporation. 
 #
@@ -36,7 +36,10 @@
     <OtherFlags Condition=" '$(TargetFramework)'=='net40'">$(OtherFlags) --compiling-fslib-40</OtherFlags>
   </PropertyGroup>
   <!-- MonoDevelop likes these here to recognise the configurations -->
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' " />
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <DefineConstants>TRACE;DEBUG;MONO;CODE_ANALYSIS; STRONG_NAME_AND_DELAY_SIGN_FSHARP_COMPILER_WITH_MSFT_KEY;MONO;CODE_ANALYSIS; STRONG_NAME_AND_DELAY_SIGN_FSHARP_COMPILER_WITH_MSFT_KEY;RUNTIME;FX_ATLEAST_40;FX_ATLEAST_35;BE_SECURITY_TRANSPARENT;QUERIES_IN_FSLIB;PUT_TYPE_PROVIDERS_IN_FSCORE;;FX_ATLEAST_LINQ;FX_NO_BIGINT_CULTURE_PARSE;PUT_TYPE_PROVIDERS_IN_FSCORE;FX_ATLEAST_40;FX_ATLEAST_35;BE_SECURITY_TRANSPARENT;QUERIES_IN_FSLIB;PUT_TYPE_PROVIDERS_IN_FSCORE;;FX_ATLEAST_LINQ;FX_NO_BIGINT_CULTURE_PARSE;PUT_TYPE_PROVIDERS_IN_FSCORE</DefineConstants>
+    <OtherFlags>--warnon:1182 --compiling-fslib --optimize --maxerrors:20 --extraoptimizationloops:1  --times --delaysign+ --keyfile:..\..\fsharp\msft.pubkey --no-jit-optimize --jit-tracking --define:PUT_TYPE_PROVIDERS_IN_FSCORE</OtherFlags>
+  </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' " />
   <ItemGroup>
     <EmbeddedResource Include="FSCore.resx">

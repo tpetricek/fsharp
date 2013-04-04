@@ -2508,6 +2508,13 @@ let HasFSharpAttribute g tref attrs = List.exists (IsMatchingFSharpAttribute g t
 let findAttrib g tref attrs = List.find (IsMatchingFSharpAttribute g tref) attrs
 let TryFindFSharpAttribute g tref attrs = List.tryFind (IsMatchingFSharpAttribute g tref) attrs
 
+let TryFindTypeCheckingProviderTypeAttribute g attrs = 
+  attrs |> List.tryPick (fun (Attrib(tcref,_,_,_,_,_,_)) -> 
+    match TryFindFSharpAttribute g g.attrib_TypeCheckingProviderTypeAttribute tcref.Attribs with
+    | Some (Attrib(_,_, [AttribExpr(_, Expr.App(Expr.Val(valName,_,_), _, [tyInst],_,_))], _,_,_,_)) when valName.DisplayName = "typeof" -> 
+        Some tyInst
+    | _ -> None)
+
 let (|ExtractAttribNamedArg|_|) nm args = 
     args |> List.tryPick (function (AttribNamedArg(nm2,_,_,v)) when nm = nm2 -> Some v | _ -> None) 
 

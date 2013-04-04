@@ -33,7 +33,12 @@
     <OtherFlags>$(OtherFlags) --warnon:1182</OtherFlags>
   </PropertyGroup>
   <!-- MonoDevelop likes these here to recognise the configurations -->
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' " />
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <StartAction>Program</StartAction>
+    <StartProgram>C:\Tomas\Binary\FSharp.Research\Debug\net40\bin\fsc.exe</StartProgram>
+    <StartArguments>--noframework -r:..\Debug\net40\bin\FSharp.Core.dll --target:library booleans.fs</StartArguments>
+    <StartWorkingDirectory>C:\Tomas\Binary\FSharp.Research\tests\</StartWorkingDirectory>
+  </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' " />
   <ItemGroup>
     <Compile Include="..\..\assemblyinfo\assemblyinfo.fsc.exe.fs">

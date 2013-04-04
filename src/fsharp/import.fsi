@@ -28,7 +28,7 @@ type AssemblyLoader =
     /// Get a flag indicating if an assembly is a provided assembly, plus the
     /// table of information recording remappings from type names in the provided assembly to type
     /// names in the statically linked, embedded assembly.
-    abstract GetProvidedAssemblyInfo : range * Tainted<ProvidedAssembly> -> bool * ProvidedAssemblyStaticLinkingMap option
+    abstract GetProvidedAssemblyInfo : range * TaintedProvider<ProvidedAssembly> -> bool * ProvidedAssemblyStaticLinkingMap option
     /// Record a root for a [<Generate>] type to help guide static linking & type relocation
     abstract RecordGeneratedTypeRoot : ProviderGeneratedType -> unit
 #endif
@@ -49,10 +49,10 @@ type ImportMap =
 val internal ImportILTypeRef : ImportMap -> range -> ILTypeRef -> TyconRef
 val internal ImportILType : ImportMap -> range -> TType list -> ILType -> TType
 #if EXTENSIONTYPING
-val internal ImportProvidedType : ImportMap -> range -> (* TType list -> *) Tainted<ProvidedType> -> TType
-val internal ImportProvidedNamedType : ImportMap -> range -> (* TType list -> *) Tainted<ProvidedType> -> TyconRef
-val internal ImportProvidedTypeAsILType : ImportMap -> range -> Tainted<ProvidedType> -> ILType
-val internal ImportProvidedMethodBaseAsILMethodRef : ImportMap -> range -> Tainted<ProvidedMethodBase> -> ILMethodRef
+val internal ImportProvidedType : ImportMap -> range -> (* TType list -> *) TaintedProvider<ProvidedType> -> TType
+val internal ImportProvidedNamedType : ImportMap -> range -> (* TType list -> *) TaintedProvider<ProvidedType> -> TyconRef
+val internal ImportProvidedTypeAsILType : ImportMap -> range -> TaintedProvider<ProvidedType> -> ILType
+val internal ImportProvidedMethodBaseAsILMethodRef : ImportMap -> range -> TaintedProvider<ProvidedMethodBase> -> ILMethodRef
 #endif
 val internal ImportILGenericParameters : (unit -> ImportMap) -> range -> ILScopeRef -> TType list -> ILGenericParameterDef list -> Typar list
 val internal ImportILAssembly : (unit -> ImportMap) * range * (ILScopeRef -> ILModuleDef) * ILScopeRef * sourceDir:string * filename: string option * ILModuleDef * IEvent<string> -> CcuThunk

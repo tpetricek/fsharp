@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
 # Copyright (c) 2002-2011 Microsoft Corporation. 
 #
@@ -27,10 +27,12 @@
     <ProjectGuid>{2E4D67B4-522D-4CF7-97E4-BA940F0B18F3}</ProjectGuid>
     <AllowCrossTargeting>true</AllowCrossTargeting>
     <BaseAddress>0x06800000</BaseAddress>
-    <OtherFlags>$(OtherFlags) /warnon:1182</OtherFlags>
+    <OtherFlags>$(OtherFlags) /warnon:1182 --define:EXTENSIONTYPING</OtherFlags>
   </PropertyGroup>
   <!-- MonoDevelop likes these here to recognise the configurations -->
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' " />
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <DefineConstants>TRACE;DEBUG;EXTENSIONTYPING;MONO;CODE_ANALYSIS; STRONG_NAME_FSHARP_COMPILER_WITH_TEST_KEY;MONO;CODE_ANALYSIS; STRONG_NAME_FSHARP_COMPILER_WITH_TEST_KEY;MONO;CODE_ANALYSIS; STRONG_NAME_FSHARP_COMPILER_WITH_TEST_KEY;EXTENSIONTYPING;COMPILER;INCLUDE_METADATA_READER;INCLUDE_METADATA_WRITER;EXTENSIBLE_DUMPER;TYPE_PROVIDER_SECURITY;FX_ATLEAST_40;FX_ATLEAST_35;BE_SECURITY_TRANSPARENT;QUERIES_IN_FSLIB;PUT_TYPE_PROVIDERS_IN_FSCORE;;FX_ATLEAST_LINQ;FX_NO_BIGINT_CULTURE_PARSE;EXTENSIONTYPING;FX_ATLEAST_40;FX_ATLEAST_35;BE_SECURITY_TRANSPARENT;QUERIES_IN_FSLIB;PUT_TYPE_PROVIDERS_IN_FSCORE;;FX_ATLEAST_LINQ;FX_NO_BIGINT_CULTURE_PARSE;PUT_TYPE_PROVIDERS_IN_FSCORE;FX_ATLEAST_40;FX_ATLEAST_35;BE_SECURITY_TRANSPARENT;QUERIES_IN_FSLIB;PUT_TYPE_PROVIDERS_IN_FSCORE;;FX_ATLEAST_LINQ;FX_NO_BIGINT_CULTURE_PARSE;PUT_TYPE_PROVIDERS_IN_FSCORE</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' " />
   <ItemGroup>
     <FsSrGen Include="..\FSComp.txt">

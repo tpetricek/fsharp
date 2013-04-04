@@ -1689,7 +1689,7 @@ type AssemblyReference =
 
 type UnresolvedAssemblyReference = UnresolvedAssemblyReference of string * AssemblyReference list
 #if EXTENSIONTYPING
-type ResolvedExtensionReference = ResolvedExtensionReference of string * AssemblyReference list * Tainted<ITypeProvider> list
+type ResolvedExtensionReference = ResolvedExtensionReference of string * AssemblyReference list * TaintedProvider<ITypeProvider> list
 #endif
 
 type TcConfigBuilder =
@@ -3274,7 +3274,7 @@ type ImportedAssembly =
       AssemblyInternalsVisibleToAttributes: string list;
 #if EXTENSIONTYPING
       IsProviderGenerated: bool
-      mutable TypeProviders: Tainted<Microsoft.FSharp.Core.CompilerServices.ITypeProvider> list;
+      mutable TypeProviders: TaintedProvider<Microsoft.FSharp.Core.CompilerServices.ITypeProvider> list;
 #endif
       FSharpOptimizationData : Microsoft.FSharp.Control.Lazy<Option<Opt.LazyModuleInfo>> }
 
@@ -3436,7 +3436,7 @@ type TcImports(tcConfigP:TcConfigProvider, initialResolutions:TcAssemblyResoluti
 
 
 #if EXTENSIONTYPING
-    member tcImports.GetProvidedAssemblyInfo(m, assembly: Tainted<ProvidedAssembly>) = 
+    member tcImports.GetProvidedAssemblyInfo(m, assembly: TaintedProvider<ProvidedAssembly>) = 
         let anameOpt = assembly.PUntaint((fun assembly -> match assembly with null -> None | a -> Some (a.GetName())), m)
         match anameOpt with 
         | None -> false, None
@@ -3629,7 +3629,7 @@ type TcImports(tcConfigP:TcConfigProvider, initialResolutions:TcAssemblyResoluti
         tcGlobals <- Some g
 
 #if EXTENSIONTYPING
-    member private tcImports.InjectProvidedNamespaceOrTypeIntoEntity typeProviderEnvironment (tcConfig:TcConfig) m (entity:Entity) (injectedNamspace,remainingNamespace) provider (st:Tainted<ProvidedType> option) = 
+    member private tcImports.InjectProvidedNamespaceOrTypeIntoEntity typeProviderEnvironment (tcConfig:TcConfig) m (entity:Entity) (injectedNamspace,remainingNamespace) provider (st:TaintedProvider<ProvidedType> option) = 
         match remainingNamespace with
         | next::rest ->
             // Inject the namespace entity 
@@ -3670,7 +3670,9 @@ type TcImports(tcConfigP:TcConfigProvider, initialResolutions:TcAssemblyResoluti
 
                 | _ -> failwith "Unexpected representation in namespace entity referred to by a type provider"
 
-    member tcImports.ImportTypeProviderExtensions (tpApprovalsRef : _ ref, 
+    member private tcImports.ImportTypeOrCheckingProviderExtensions<'TProvider when 'TProvider :> IDisposable> 
+                                                  (importFunction: _ -> bool * Tainted<'TProvider, 'TProvider> list, registerInvalidation)
+                                                  (tpApprovalsRef : _ ref, 
                                                    displayPSTypeProviderSecurityDialogBlockingUI, 
                                                    tcConfig:TcConfig, 
                                                    fileNameOfRuntimeAssembly, 
@@ -3704,15 +3706,15 @@ type TcImports(tcConfigP:TcConfigProvider, initialResolutions:TcAssemblyResoluti
 
             let providers = 
                 [ for assemblyName in providerAssemblies do
-                      yield ExtensionTyping.GetTypeProvidersOfAssembly(displayPSTypeProviderSecurityDialogBlockingUI, tcConfig.validateTypeProviders, 
+                      yield importFunction(displayPSTypeProviderSecurityDialogBlockingUI, tcConfig.validateTypeProviders, 
 #if TYPE_PROVIDER_SECURITY
-                                                                       tpApprovalsRef, 
+                                           tpApprovalsRef, 
 #endif
-                                                                       fileNameOfRuntimeAssembly, ilScopeRefOfRuntimeAssembly, assemblyName, typeProviderEnvironment, 
-                                                                       tcConfig.isInvalidationSupported, tcConfig.isInteractive, tcImports.SystemRuntimeContainsType, systemRuntimeAssemblyVersion, m) ]
+                                           fileNameOfRuntimeAssembly, ilScopeRefOfRuntimeAssembly, assemblyName, typeProviderEnvironment, 
+                                           tcConfig.isInvalidationSupported, tcConfig.isInteractive, tcImports.SystemRuntimeContainsType, systemRuntimeAssemblyVersion, m) ]
             let wasApproved = providers |> List.forall (fun (ok,_) -> ok)
-            let providers = providers |> List.map snd |> List.concat
-
+            let providers : list<Tainted<'TProvider, 'TProvider>> = providers |> List.map snd |> List.concat
+            
             // Note, type providers are disposable objects. The TcImports owns the provider objects - when/if it is disposed, the providers are disposed.
             // We ignore all exceptions from provider disposal.
             for provider in providers do 
@@ -3724,50 +3726,71 @@ type TcImports(tcConfigP:TcConfigProvider, initialResolutions:TcAssemblyResoluti
             
             // Add the invalidation signal handlers to each provider
             for provider in providers do 
-                provider.PUntaint((fun tp -> tp.Invalidate.Add(fun _ -> invalidateCcu.Trigger ("The provider '" + fileNameOfRuntimeAssembly + "' reported a change"))), m)
+                provider.PUntaint((fun tp -> registerInvalidation tp invalidateCcu), m)
                 
             match providers with
             | [] -> 
                 if wasApproved then
                     warning(Error(FSComp.SR.etHostingAssemblyFoundWithoutHosts(fileNameOfRuntimeAssembly,typeof<Microsoft.FSharp.Core.CompilerServices.TypeProviderAssemblyAttribute>.FullName),m)); 
             | _ -> 
-
                 if typeProviderEnvironment.showResolutionMessages then
                     dprintfn "Found extension type hosting hosting assembly '%s' with the following extensions:" fileNameOfRuntimeAssembly
                     providers |> List.iter(fun provider ->dprintfn " %s" (ExtensionTyping.DisplayNameOfTypeProvider(provider.TypeProvider, m)))
                     
-                for provider in providers do 
-                    try
-                        // Inject an entity for the namespace, or if one already exists, then record this as a provider
-                        // for that namespace.
-                        let rec loop (providedNamespace: Tainted<IProvidedNamespace>) =
-                            let path = ExtensionTyping.GetPartsOfDotNetNamespace(m,provider,providedNamespace.PUntaint((fun r -> r.NamespaceName), m))
-                            tcImports.InjectProvidedNamespaceOrTypeIntoEntity  typeProviderEnvironment tcConfig m mspec  ([],path) provider None
+            if startingErrorCount<CompileThreadStatic.ErrorLogger.ErrorCount then
+                error(Error(FSComp.SR.etOneOrMoreErrorsSeenDuringExtensionTypeSetting(),m))  
 
-                            // Inject entities for the types returned by provider.GetTypes(). 
-                            //
-                            // NOTE: The types provided by GetTypes() are available for name resolution
-                            // when the namespace is "opened". This is part of the specification of the language
-                            // feature.
-                            let tys = providedNamespace.PApplyArray((fun provider -> provider.GetTypes()), "GetTypes", m)
-                            let ptys = [| for ty in tys -> ty.PApply((fun ty -> ty |> ProvidedType.CreateNoContext), m) |]
-                            for st in ptys do 
-                                tcImports.InjectProvidedNamespaceOrTypeIntoEntity typeProviderEnvironment tcConfig m mspec ([],path) provider (Some st)
+            providers, typeProviderEnvironment
+        else [], typeProviderEnvironment
 
-                            for providedNestedNamespace in providedNamespace.PApplyArray((fun provider -> provider.GetNestedNamespaces()), "GetNestedNamespaces", m) do 
-                                loop providedNestedNamespace
+    member tcImports.ImportTypeProviderExtensions ((tpApprovalsRef : _ ref, 
+                                                    displayPSTypeProviderSecurityDialogBlockingUI, 
+                                                    tcConfig:TcConfig, 
+                                                    fileNameOfRuntimeAssembly, 
+                                                    ilScopeRefOfRuntimeAssembly,
+                                                    moduleAttributes:ILAttribute list, 
+                                                    mspec, 
+                                                    invalidateCcu:Event<_>, 
+                                                    m) as args) = 
 
-                        let providedNamespaces = provider.PApplyArray((fun r -> r.GetNamespaces()), "GetNamespaces", m)
-                        for providedNamespace in providedNamespaces do
-                            loop providedNamespace
-                    with e -> 
-                        errorRecovery e m
+        let providers, typeProviderEnvironment =
+          tcImports.ImportTypeOrCheckingProviderExtensions 
+            ( ExtensionTyping.GetTypeProvidersOfAssembly, fun tp invalidateCcu -> 
+              tp.Invalidate.Add(fun _ -> invalidateCcu.Trigger ("The provider '" + fileNameOfRuntimeAssembly + "' reported a change"))) args 
+        for provider in providers do 
+            try
+                // Inject an entity for the namespace, or if one already exists, then record this as a provider
+                // for that namespace.
+                let rec loop (providedNamespace: TaintedProvider<IProvidedNamespace>) =
+                    let path = ExtensionTyping.GetPartsOfDotNetNamespace(m,provider,providedNamespace.PUntaint((fun r -> r.NamespaceName), m))
+                    tcImports.InjectProvidedNamespaceOrTypeIntoEntity  typeProviderEnvironment tcConfig m mspec  ([],path) provider None
 
-                if startingErrorCount<CompileThreadStatic.ErrorLogger.ErrorCount then
-                    error(Error(FSComp.SR.etOneOrMoreErrorsSeenDuringExtensionTypeSetting(),m))  
+                    // Inject entities for the types returned by provider.GetTypes(). 
+                    //
+                    // NOTE: The types provided by GetTypes() are available for name resolution
+                    // when the namespace is "opened". This is part of the specification of the language
+                    // feature.
+                    let tys = providedNamespace.PApplyArray((fun provider -> provider.GetTypes()), "GetTypes", m)
+                    let ptys = [| for ty in tys -> ty.PApply((fun ty -> ty |> ProvidedType.CreateNoContext), m) |]
+                    for st in ptys do 
+                        tcImports.InjectProvidedNamespaceOrTypeIntoEntity typeProviderEnvironment tcConfig m mspec ([],path) provider (Some st)
 
-            providers 
-        else []
+                    for providedNestedNamespace in providedNamespace.PApplyArray((fun provider -> provider.GetNestedNamespaces()), "GetNestedNamespaces", m) do 
+                        loop providedNestedNamespace
+
+                let providedNamespaces = provider.PApplyArray((fun r -> r.GetNamespaces()), "GetNamespaces", m)
+                for providedNamespace in providedNamespaces do
+                    loop providedNamespace
+            with e -> 
+                errorRecovery e m
+                     
+        providers
+
+    member tcImports.ImportTypeCheckingProviderExtensions args = 
+        let providers, _ =
+          tcImports.ImportTypeOrCheckingProviderExtensions 
+            ( ExtensionTyping.GetTypeCheckingProvidersOfAssembly, fun _ _ -> ()) args
+        providers
 #endif
 
     /// Query information about types available in target system runtime library

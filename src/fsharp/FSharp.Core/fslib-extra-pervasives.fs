@@ -323,6 +323,21 @@ namespace Microsoft.FSharp.Core.CompilerServices
         abstract GetParameterCustomAttributesData : assembly:System.Reflection.ParameterInfo -> System.Collections.Generic.IList<IProvidedCustomAttributeData>
 #endif
 
+    [<AttributeUsage (AttributeTargets.GenericParameter ||| AttributeTargets.Class,AllowMultiple=false)>]  
+    [<Sealed>]
+    type TypeCheckingProviderTypeAttribute(typeChecker:System.Type) =
+        inherit System.Attribute()
+        member x.TypeChecker = typeChecker
+
+    [<AttributeUsage (AttributeTargets.Class,AllowMultiple=false)>]  
+    [<Sealed>]
+    type TypeCheckingProviderAttribute() =
+        inherit System.Attribute()
+
+    type ITypeCheckingProvider = 
+        inherit System.IDisposable
+        abstract Test : System.Type -> unit
+
 #endif
 
 #if EXTRAS_FOR_SILVERLIGHT_COMPILER

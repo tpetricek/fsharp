@@ -475,7 +475,7 @@ let ConstantObjToILFieldInit m (v:obj) =
 // Compute the OptionalArgInfo for a provided parameter. Same logic as OptionalArgInfoOfILParameter
 // except we do not aply the Visual Basic rules for IDispatchConstant and IUnknownConstant to optional 
 // provided parameters.
-let OptionalArgInfoOfProvidedParameter g amap m (provParam : Tainted<ProvidedParameterInfo>) = 
+let OptionalArgInfoOfProvidedParameter g amap m (provParam : TaintedProvider<ProvidedParameterInfo>) = 
     if provParam.PUntaint((fun p -> p.IsOptional),m) then 
         match provParam.PUntaint((fun p ->  p.RawDefaultValue),m) with 
         | null -> 
@@ -497,13 +497,13 @@ let OptionalArgInfoOfProvidedParameter g amap m (provParam : Tainted<ProvidedPar
 //-------------------------------------------------------------------------
 // Some helper functions
 
-let GetAndSanityCheckProviderMethod m (mi: Tainted<'T :> ProvidedMemberInfo>) (get : 'T -> ProvidedMethodInfo) err = 
+let GetAndSanityCheckProviderMethod m (mi: TaintedProvider<'T :> ProvidedMemberInfo>) (get : 'T -> ProvidedMethodInfo) err = 
     match mi.PApply((fun mi -> (get mi :> ProvidedMethodBase)),m) with 
     | Tainted.Null -> error(Error(err(mi.PUntaint((fun mi -> mi.Name),m),mi.PUntaint((fun mi -> mi.DeclaringType.Name),m)),m))   
     | meth -> meth
 
 
-let RepresentativeMethodInfoOfPropertyInfo (pi:Tainted<ProvidedPropertyInfo>) m =
+let RepresentativeMethodInfoOfPropertyInfo (pi:TaintedProvider<ProvidedPropertyInfo>) m =
     if pi.PUntaint((fun pi -> pi.CanRead), m) then 
         GetAndSanityCheckProviderMethod m pi (fun pi -> pi.GetGetMethod()) FSComp.SR.etPropertyCanReadButHasNoGetter
     elif pi.PUntaint((fun pi -> pi.CanWrite), m) then 
@@ -715,7 +715,7 @@ type MethInfo =
 
 #if EXTENSIONTYPING
     /// Describes a use of a method backed by provided metadata
-    | ProvidedMeth of TcGlobals * Tainted<ProvidedMethodBase> * Import.ImportMap * range
+    | ProvidedMeth of TcGlobals * TaintedProvider<ProvidedMethodBase> * Import.ImportMap * range
 #endif
 
     /// Get the enclosing ("parent"/"declaring") type of the method info. If this is an extension member,
@@ -1000,7 +1000,7 @@ type ILFieldInfo =
     | ILFieldInfo of ILTypeInfo * ILFieldDef // .NET IL fields 
 #if EXTENSIONTYPING
      /// Represents a single use of a field backed by provided metadata
-    | ProvidedField of TcGlobals * Tainted<ProvidedFieldInfo> * Import.ImportMap * range
+    | ProvidedField of TcGlobals * TaintedProvider<ProvidedFieldInfo> * Import.ImportMap * range
 #endif
 
     /// Get the enclosing ("parent"/"declaring") type of the field. 
@@ -1248,7 +1248,7 @@ type PropInfo =
     | ILProp of TcGlobals * ILPropInfo
 #if EXTENSIONTYPING
     /// An F# use of a property backed by provided metadata
-    | ProvidedProp of TcGlobals * Tainted<ProvidedPropertyInfo> * Import.ImportMap * range
+    | ProvidedProp of TcGlobals * TaintedProvider<ProvidedPropertyInfo> * Import.ImportMap * range
 #endif
 
     member x.HasDirectXmlComment =
@@ -1571,7 +1571,7 @@ type EventInfo =
     | ILEvent of TcGlobals * ILEventInfo
 #if EXTENSIONTYPING
     /// An F# use of an event backed by provided metadata
-    | ProvidedEvent of TcGlobals * Import.ImportMap * Tainted<ProvidedEventInfo> * range
+    | ProvidedEvent of TcGlobals * Import.ImportMap * TaintedProvider<ProvidedEventInfo> * range
 #endif
 
     member x.EnclosingType = 
@@ -1778,7 +1778,7 @@ let CombineMethInsts ttps mtps tinst minst = (mkTyparInst ttps tinst @ mkTyparIn
 
 #if EXTENSIONTYPING
 /// Get the return type of a provided method, where 'void' is returned as 'None'
-let GetCompiledReturnTyOfProvidedMethodInfo amap m (mi:Tainted<ProvidedMethodBase>) =
+let GetCompiledReturnTyOfProvidedMethodInfo amap m (mi:TaintedProvider<ProvidedMethodBase>) =
     let returnType = 
         if mi.PUntaint((fun mi -> mi.IsConstructor),m) then  
             mi.PApply((fun mi -> mi.DeclaringType),m)
@@ -2467,7 +2467,7 @@ module AttributeChecking =
             )
 
 #if EXTENSIONTYPING
-    let private CheckProvidedAttributes g m (provAttribs: Tainted<IProvidedCustomAttributeProvider>)  = 
+    let private CheckProvidedAttributes g m (provAttribs: TaintedProvider<IProvidedCustomAttributeProvider>)  = 
         let (AttribInfo(tref,_)) = g.attrib_SystemObsolete
         match provAttribs.PUntaint((fun a -> a.GetAttributeConstructorArgs(provAttribs.TypeProvider.PUntaintNoFailure(id), tref.FullName)),m) with
         | Some [ Some (:? string as msg) ] -> WarnD(ObsoleteWarning(msg,m))
@@ -2508,7 +2508,7 @@ module AttributeChecking =
       
 #if EXTENSIONTYPING
     /// Check provided attributes for existence of 'ObsoleteAttribute', to suppress the item in intellisense
-    let CheckProvidedAttributesForUnseen (provAttribs: Tainted<IProvidedCustomAttributeProvider>) m = 
+    let CheckProvidedAttributesForUnseen (provAttribs: TaintedProvider<IProvidedCustomAttributeProvider>) m = 
         provAttribs.PUntaint((fun a -> a.GetAttributeConstructorArgs(provAttribs.TypeProvider.PUntaintNoFailure(id), typeof<System.ObsoleteAttribute>.FullName).IsSome),m)
 #endif
 

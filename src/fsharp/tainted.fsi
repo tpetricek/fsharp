@@ -30,13 +30,13 @@ type internal TypeProviderError =
 
 /// This struct wraps a value produced by a type provider to properly attribute any failures.
 [<NoEquality; NoComparison; Class>]
-type internal Tainted<'T> =
+type internal Tainted<'T, 'TOwner> =
 
     /// Create an initial tainted value
-    static member CreateAll : (ITypeProvider * ILScopeRef) list -> Tainted<ITypeProvider> list
+    static member CreateAll : ('TOwner * ILScopeRef) list -> Tainted<'TOwner, 'TOwner> list
 
     /// A type provider that produced the value
-    member TypeProvider : Tainted<ITypeProvider>
+    member TypeProvider : Tainted<'TOwner, 'TOwner>
 
     /// Test to report for the name of the type provider that produced the value
     member TypeProviderDesignation : string
@@ -45,28 +45,28 @@ type internal Tainted<'T> =
     member TypeProviderAssemblyRef : ILScopeRef
 
     /// Apply an operation. Any exception will be attributed to the type provider with an error located at the given range
-    member PApply : ('T -> 'U) * range:range -> Tainted<'U>
+    member PApply : ('T -> 'U) * range:range -> Tainted<'U, 'TOwner>
 
     /// Apply an operation. Any exception will be attributed to the type provider with an error located at the given range
-    member PApply2 : ('T -> 'U1 * 'U2) * range:range -> Tainted<'U1> * Tainted<'U2> 
+    member PApply2 : ('T -> 'U1 * 'U2) * range:range -> Tainted<'U1, 'TOwner> * Tainted<'U2, 'TOwner> 
 
     /// Apply an operation. Any exception will be attributed to the type provider with an error located at the given range
-    member PApply3 : ('T -> 'U1 * 'U2 * 'U3) * range:range -> Tainted<'U1> * Tainted<'U2>  * Tainted<'U3>
+    member PApply3 : ('T -> 'U1 * 'U2 * 'U3) * range:range -> Tainted<'U1, 'TOwner> * Tainted<'U2, 'TOwner>  * Tainted<'U3, 'TOwner>
 
     /// Apply an operation. Any exception will be attributed to the type provider with an error located at the given range
-    member PApply4 : ('T -> 'U1 * 'U2 * 'U3 * 'U4) * range:range -> Tainted<'U1> * Tainted<'U2>  * Tainted<'U3> * Tainted<'U4>
+    member PApply4 : ('T -> 'U1 * 'U2 * 'U3 * 'U4) * range:range -> Tainted<'U1, 'TOwner> * Tainted<'U2, 'TOwner>  * Tainted<'U3, 'TOwner> * Tainted<'U4, 'TOwner>
 
     /// Apply an operation. No exception may be raised by 'f'
-    member PApplyNoFailure : f: ('T -> 'U) -> Tainted<'U>
+    member PApplyNoFailure : f: ('T -> 'U) -> Tainted<'U, 'TOwner>
 
     /// Apply an operation. Any exception will be attributed to the type provider with an error located at the given range
-    member PApplyWithProvider : ('T * ITypeProvider -> 'U) * range:range -> Tainted<'U>
+    member PApplyWithProvider : ('T * 'TOwner -> 'U) * range:range -> Tainted<'U, 'TOwner>
 
     /// Apply an operation that returns an array. Unwrap array. Any exception will be attributed to the type provider with an error located at the given range.  String is method name of thing-returning-array, to diagnostically attribute if it is null
-    member PApplyArray : ('T -> 'U[]) * string * range:range -> Tainted<'U>[]
+    member PApplyArray : ('T -> 'U[]) * string * range:range -> Tainted<'U, 'TOwner>[]
 
     /// Apply an operation that returns an option. Unwrap option. Any exception will be attributed to the type provider with an error located at the given range
-    member PApplyOption : ('T -> 'U option) * range:range -> Tainted<'U> option
+    member PApplyOption : ('T -> 'U option) * range:range -> Tainted<'U, 'TOwner> option
 
     /// Apply an operation and 'untaint' the result. The result must be marshalable. Any exception will be attributed to the type provider with an error located at the given range
     member PUntaint : ('T -> 'U) * range:range -> 'U
@@ -76,24 +76,30 @@ type internal Tainted<'T> =
     member PUntaintNoFailure : ('T -> 'U) -> 'U
 
     /// Conditionally coerce the value
-    member OfType<'U> : unit -> Tainted<'U> option
+    member OfType<'U> : unit -> Tainted<'U, 'TOwner> option
 
     /// Assert that the value is of 'U and coerce the value.
     /// If corecion fails, the failuer will be blamed on a type provider
-    member Coerce<'U> : range:range -> Tainted<'U>
+    member Coerce<'U> : range:range -> Tainted<'U, 'TOwner>
+
+/// This struct wraps a value produced by a type provider to properly attribute any failures.
+type internal TaintedProvider<'T> = Tainted<'T, ITypeProvider>
+
+/// ?
+type internal TaintedCheckingProvider<'T> = Tainted<'T, ITypeCheckingProvider>
 
 
 [<RequireQualifiedAccess>]
 module internal Tainted =
     /// Test whether the tainted value is null
-    val (|Null|_|) : Tainted<'T> -> unit option when 'T : null
+    val (|Null|_|) : TaintedProvider<'T> -> unit option when 'T : null
     /// Test whether the tainted value equals given value. 
     /// Failure in call to equality operation will be blamed on type provider of first operand
-    val Eq : Tainted<'T> -> 'T -> bool when 'T : equality
+    val Eq : TaintedProvider<'T> -> 'T -> bool when 'T : equality
     /// Test whether the tainted value equals given value. Type providers are ignored (equal tainted values produced by different type providers are equal)
     /// Failure in call to equality operation will be blamed on type provider of first operand
-    val EqTainted : Tainted<'T> -> Tainted<'T> -> bool when 'T : equality and 'T : not struct
+    val EqTainted : TaintedProvider<'T> -> TaintedProvider<'T> -> bool when 'T : equality and 'T : not struct
     /// Compute the hash value for the tainted value
-    val GetHashCodeTainted : Tainted<'T> -> int when 'T : equality
+    val GetHashCodeTainted : TaintedProvider<'T> -> int when 'T : equality
 
 #endif

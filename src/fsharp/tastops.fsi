@@ -1196,6 +1196,8 @@ val TryFindFSharpBoolAttribute     : TcGlobals -> Env.BuiltinAttribInfo -> Attri
 val TryFindFSharpStringAttribute   : TcGlobals -> Env.BuiltinAttribInfo -> Attribs -> string option
 val TryFindFSharpInt32Attribute    : TcGlobals -> Env.BuiltinAttribInfo -> Attribs -> int32 option
 
+val TryFindTypeCheckingProviderTypeAttribute : TcGlobals -> Attribs -> TType option 
+
 #if EXTENSIONTYPING
 /// returns Some(assemblyName) for success
 val TryDecodeTypeProviderAssemblyAttr : ILAttribute -> string option

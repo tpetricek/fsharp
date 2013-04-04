@@ -684,6 +684,7 @@ module private PrintTypes =
         match kind with 
         | TyparKind.Type -> restL
         | TyparKind.Measure -> squareAngleL (wordL "Measure") @@ restL
+        | TyparKind.Custom info -> squareAngleL (wordL "Custom" ^^ leftL "(" ^^ wordL info.Name ^^ rightL ")") @@ restL
 
     and private layoutTyparAttribs denv kind attrs restL =         
         match attrs, kind with

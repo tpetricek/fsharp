@@ -248,18 +248,26 @@ type ValFlags(flags:int64) =
         // Clear the IsGeneratedEventVal, since there's no use in propagating specialname information for generated add/remove event vals
                                                       (flags       &&&    ~~~0b011001100000000000L) 
 
+type CustomKind = 
+    { Name : string }
+
 [<RequireQualifiedAccess>]
 type TyparKind = 
     | Type 
     | Measure
+    | Custom of CustomKind
+(*
     member x.AttrName =
       match x with
       | TyparKind.Type -> None
       | TyparKind.Measure -> Some "Measure"
+      | TyparKind
+*)
     override x.ToString() = 
       match x with
       | TyparKind.Type -> "type"
       | TyparKind.Measure -> "measure"
+      | TyparKind.Custom kind -> sprintf "custom: %s" kind.Name
 
 [<RequireQualifiedAccess>]
 /// Indicates if the type variable can be sovled or given new constraints. The status of a type variable
@@ -448,7 +456,7 @@ let parentCompPath (CompPath(scoref,cpath)) =
 let mkNestedCPath (CompPath(scoref,p)) n modKind = CompPath(scoref,p@[(n,modKind)])
 
 #if EXTENSIONTYPING
-let definitionLocationOfProvidedItem (p : Tainted<#IProvidedCustomAttributeProvider>) =
+let definitionLocationOfProvidedItem (p : TaintedProvider<#IProvidedCustomAttributeProvider>) =
     let attrs = p.PUntaintNoFailure(fun x -> x.GetDefinitionLocationAttribute(p.TypeProvider.PUntaintNoFailure(id)))
     match attrs with
     | None | Some (null, _, _) -> None
@@ -1119,7 +1127,7 @@ and
     /// Indicates the representation information for a provided namespace.  
     //
     // Note, the list could probably be a list of IProvidedNamespace rather than ITypeProvider
-    | TProvidedNamespaceExtensionPoint of ExtensionTyping.ResolutionEnvironment * Tainted<ITypeProvider> list
+    | TProvidedNamespaceExtensionPoint of ExtensionTyping.ResolutionEnvironment * TaintedProvider<ITypeProvider> list
 #endif
 
     /// The 'NoRepr' value here has four meanings: 
@@ -1143,7 +1151,7 @@ and
      /// The underlying System.Type (wrapped as a ProvidedType to make sure we don't call random things on
      /// System.Type, and wrapped as Tainted to make sure we track which provider this came from, for reporting
      /// error messages)
-     ProvidedType:  Tainted<ProvidedType>
+     ProvidedType:  TaintedProvider<ProvidedType>
      /// The base type of the type. We use it to compute the compiled representation of the type for erased types.
      /// Reading is delayed, since it does an import on the underlying type
      LazyBaseType: LazyWithContext<TType, range * TType> 
@@ -1520,7 +1528,7 @@ and Construct =
 
 #if EXTENSIONTYPING
 
-    static member NewProvidedTyconRepr(resolutionEnvironment,st:Tainted<ProvidedType>,importProvidedType,isSuppressRelocate,m) = 
+    static member NewProvidedTyconRepr(resolutionEnvironment,st:TaintedProvider<ProvidedType>,importProvidedType,isSuppressRelocate,m) = 
 
         let isErased = st.PUntaint((fun st -> st.IsErased),m)
 
@@ -1553,7 +1561,7 @@ and Construct =
               IsErased = isErased
               IsSuppressRelocate = isSuppressRelocate }
 
-    static member NewProvidedTycon(resolutionEnvironment, st:Tainted<ProvidedType>, importProvidedType, isSuppressRelocate, m, ?access, ?cpath) = 
+    static member NewProvidedTycon(resolutionEnvironment, st:TaintedProvider<ProvidedType>, importProvidedType, isSuppressRelocate, m, ?access, ?cpath) = 
         let stamp = newStamp() 
         let name = st.PUntaint((fun st -> st.Name), m)
         let id = ident (name,m)
@@ -2355,7 +2363,7 @@ and NonLocalEntityRef    =
                         
             // In this case, we're safely in the realm of types. Just iterate through the nested
             // types until i = path.Length-1. Create the Tycon's as needed
-            let rec tryResolveNestedTypeOf(parentEntity:Entity,resolutionEnvironment,st:Tainted<ProvidedType>,i) = 
+            let rec tryResolveNestedTypeOf(parentEntity:Entity,resolutionEnvironment,st:TaintedProvider<ProvidedType>,i) = 
                 match st.PApply((fun st -> st.GetNestedType path.[i]),m) with
                 | Tainted.Null -> None
                 | st -> 
@@ -2957,7 +2965,7 @@ and
 
       /// A helper function used to link method signatures using type equality. This is effectively a forward call to the type equality 
       /// logic in tastops.fs
-      ImportProvidedType : Tainted<ProvidedType> -> TType 
+      ImportProvidedType : TaintedProvider<ProvidedType> -> TType 
       
 #endif
       /// Indicates that this DLL uses quotation literals somewhere. This is used to implement a restriction on static linking

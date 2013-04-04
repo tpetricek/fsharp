@@ -16,6 +16,7 @@
     <ProductVersion>10.0.0</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
     <UsePartialTypes>False</UsePartialTypes>
+    <OtherFlags>$(OtherFlags) --resource:..\FSStrings.resx</OtherFlags>
   </PropertyGroup>
   <Import Project="$(FSharpSourcesRoot)\FSharpSource.Settings.targets" />
   <PropertyGroup>

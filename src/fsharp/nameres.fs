@@ -823,7 +823,7 @@ let CheckForDirectReferenceToGeneratedType (tcref: TyconRef, genOk, m) =
 
 
 /// This adds a new entity for a lazily discovered provided type into the TAST structure.
-let AddEntityForProvidedType (amap: Import.ImportMap, modref: ModuleOrNamespaceRef, resolutionEnvironment, st:Tainted<ProvidedType>, m) = 
+let AddEntityForProvidedType (amap: Import.ImportMap, modref: ModuleOrNamespaceRef, resolutionEnvironment, st:TaintedProvider<ProvidedType>, m) = 
     let importProvidedType t = Import.ImportProvidedType amap m t
     let isSuppressRelocate = amap.g.isInteractive || st.PUntaint((fun st -> st.IsSuppressRelocate),m) 
     let tycon = Construct.NewProvidedTycon(resolutionEnvironment, st, importProvidedType, isSuppressRelocate, m)

@@ -70,15 +70,15 @@ type internal TypeProviderError
             for msg in errors do
                 f (new TypeProviderError(errNum, tpDesignation, m, [msg], typeNameContext, methodNameContext))
 
-type TaintedContext = { TypeProvider : ITypeProvider; TypeProviderAssemblyRef : ILScopeRef }
+type TaintedContext<'T> = { TypeProvider : 'T; TypeProviderAssemblyRef : ILScopeRef }
 
 [<NoEquality>][<NoComparison>] 
-type internal Tainted<'T> (context : TaintedContext, value : 'T) =
+type internal Tainted<'T, 'TOwner> (context : TaintedContext<'TOwner>, value : 'T) =
     do
-        match box context.TypeProvider with 
-        | null -> 
+        match box context.TypeProvider with
+        | null ->
             assert false
-            failwith "null ITypeProvider in Tainted constructor"
+            failwith "null owner in Tainted constructor"
         | _ -> ()
 
     member this.TypeProviderDesignation = 
@@ -100,7 +100,7 @@ type internal Tainted<'T> (context : TaintedContext, value : 'T) =
                     let errNum,_ = FSComp.SR.etProviderError("", "")
                     raise <| TypeProviderError((errNum, e.Message), this.TypeProviderDesignation, range)
 
-    member this.TypeProvider = Tainted<_>(context, context.TypeProvider)
+    member this.TypeProvider = Tainted<_, _>(context, context.TypeProvider)
 
     member this.PApply(f,range:range) = 
         let u = this.Protect f range
@@ -142,9 +142,9 @@ type internal Tainted<'T> (context : TaintedContext, value : 'T) =
     /// Access the target object directly. Use with extreme caution.
     member this.AccessObjectDirectly = value
 
-    static member CreateAll(providerSpecs : (ITypeProvider * ILScopeRef) list) =
+    static member CreateAll(providerSpecs : ('TOwner * ILScopeRef) list) =
         [for (tp,nm) in providerSpecs do
-             yield Tainted<_>({ TypeProvider=tp; TypeProviderAssemblyRef=nm },tp) ] 
+             yield Tainted<_, _>({ TypeProvider=tp; TypeProviderAssemblyRef=nm },tp) ] 
 
     member this.OfType<'U> () =
         match box value with
@@ -154,16 +154,22 @@ type internal Tainted<'T> (context : TaintedContext, value : 'T) =
     member this.Coerce<'U> (range:range) =
         Tainted(context, this.Protect(fun value -> box value :?> 'U) range)
 
+/// This struct wraps a value produced by a type provider to properly attribute any failures.
+type internal TaintedProvider<'T> = Tainted<'T, ITypeProvider>
+
+/// ?
+type internal TaintedCheckingProvider<'T> = Tainted<'T, ITypeCheckingProvider>
+
 module internal Tainted =
-    let (|Null|_|) (p:Tainted<'T>) =
+    let (|Null|_|) (p:TaintedProvider<'T>) =
         if p.PUntaintNoFailure(fun p -> match p with null -> true | _ -> false) then Some() else None
 
-    let Eq (p:Tainted<'T>) (v:'T) = p.PUntaintNoFailure((fun pv -> pv = v))
+    let Eq (p:TaintedProvider<'T>) (v:'T) = p.PUntaintNoFailure((fun pv -> pv = v))
 
-    let EqTainted (t1:Tainted<'T>) (t2:Tainted<'T>) = 
+    let EqTainted (t1:TaintedProvider<'T>) (t2:TaintedProvider<'T>) = 
         t1.PUntaintNoFailure(fun t1 -> t1 === t2.AccessObjectDirectly)
 
-    let GetHashCodeTainted (t:Tainted<'T>) = t.PUntaintNoFailure(fun t -> hash t)
+    let GetHashCodeTainted (t:TaintedProvider<'T>) = t.PUntaintNoFailure(fun t -> hash t)
     
 #endif
     

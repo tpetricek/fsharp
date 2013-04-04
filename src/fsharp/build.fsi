@@ -162,7 +162,7 @@ type AssemblyResolution =
 type UnresolvedAssemblyReference = UnresolvedAssemblyReference of string * AssemblyReference list
 
 #if EXTENSIONTYPING
-type ResolvedExtensionReference = ResolvedExtensionReference of string * AssemblyReference list * Tainted<ITypeProvider> list
+type ResolvedExtensionReference = ResolvedExtensionReference of string * AssemblyReference list * TaintedProvider<ITypeProvider> list
 #endif
 
 type CompilerTarget = 
@@ -481,7 +481,7 @@ type ImportedAssembly =
       AssemblyInternalsVisibleToAttributes: string list;
 #if EXTENSIONTYPING
       IsProviderGenerated: bool;
-      mutable TypeProviders: Tainted<Microsoft.FSharp.Core.CompilerServices.ITypeProvider> list;
+      mutable TypeProviders: TaintedProvider<Microsoft.FSharp.Core.CompilerServices.ITypeProvider> list;
 #endif
       FSharpOptimizationData : Lazy<Option<Opt.LazyModuleInfo>> }
 
