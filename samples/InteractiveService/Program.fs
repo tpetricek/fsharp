@@ -16,13 +16,19 @@ do
 
   while true do
     try
+      
       let text = Console.ReadLine()
-      match fsi.EvalExpression(text) with
-      | Some value -> printfn "%A" value.ReflectionValue
-      | None -> printfn "Got no result"
+      if text.StartsWith("=") then 
+        match fsi.EvalExpression(text.Substring(1)) with
+        | Some value -> printfn "%A" value.ReflectionValue
+        | None -> printfn "Got no result!"
+      else
+        fsi.EvalInteraction(text)
+        printfn "Ok"
+
     with e ->
       match e.InnerException with
       | null -> printfn "Error evaluating expression (%s)" e.Message
-      | :? WrappedError as w -> printfn "Error evaluating expression (%s)" w.Message
+      | WrappedError(err, _) -> printfn "Error evaluating expression (%s)" err.Message
       | _ -> printfn "Error evaluating expression (%s)" e.Message
       
